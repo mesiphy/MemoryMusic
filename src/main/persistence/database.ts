@@ -73,8 +73,40 @@ export interface Alias {
 export interface SyncState {
   provider: string
   cursor: string | null
+  status: SyncStatus
+  lastAttemptAt: string | null
+  lastSuccessAt: string | null
+  failureReason: string | null
+  retryCount: number
   updatedAt: string
 }
+
+export type SyncStatus = 'idle' | 'running' | 'succeeded' | 'failed'
+
+export interface SyncStateUpdate {
+  cursor: string | null
+  status: SyncStatus
+  lastAttemptAt: string | null
+  lastSuccessAt: string | null
+  failureReason: string | null
+  retryCount: number
+}
+
+export interface QuickCaptureInboxItem {
+  id: number
+  trackId: number
+  sourceAppId: string
+  sourceTitle: string
+  sourceArtist: string | null
+  captureText: string | null
+  capturedAt: string
+  resolvedAt: string | null
+}
+
+export type NewQuickCaptureInboxItem = Omit<
+  QuickCaptureInboxItem,
+  'id' | 'capturedAt' | 'resolvedAt'
+>
 
 export interface SearchDocument {
   trackId: number
@@ -110,7 +142,7 @@ export interface SearchQueryLog {
   createdAt: string
 }
 
-export const CURRENT_SCHEMA_VERSION = 3
+export const CURRENT_SCHEMA_VERSION = 4
 
 const migrations: Readonly<Record<number, string>> = {
   1: `
@@ -229,7 +261,27 @@ CREATE TABLE search_query_log (
   missing_field TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
-CREATE INDEX idx_search_query_log_created_at ON search_query_log(created_at DESC);`
+CREATE INDEX idx_search_query_log_created_at ON search_query_log(created_at DESC);`,
+  4: `
+ALTER TABLE sync_state ADD COLUMN status TEXT NOT NULL DEFAULT 'idle'
+  CHECK (status IN ('idle', 'running', 'succeeded', 'failed'));
+ALTER TABLE sync_state ADD COLUMN last_attempt_at TEXT;
+ALTER TABLE sync_state ADD COLUMN last_success_at TEXT;
+ALTER TABLE sync_state ADD COLUMN failure_reason TEXT;
+ALTER TABLE sync_state ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0
+  CHECK (retry_count >= 0);
+CREATE TABLE quick_capture_inbox (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  track_id INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+  source_app_id TEXT NOT NULL CHECK (length(trim(source_app_id)) > 0),
+  source_title TEXT NOT NULL CHECK (length(trim(source_title)) > 0),
+  source_artist TEXT,
+  capture_text TEXT,
+  captured_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+  resolved_at TEXT
+);
+CREATE INDEX idx_quick_capture_inbox_pending
+  ON quick_capture_inbox(resolved_at, captured_at DESC, id DESC);`
 }
 
 export function openMusicDatabase(path = ':memory:'): SqliteDatabase {
@@ -368,7 +420,25 @@ function syncStateRow(row: DbRow): SyncState {
   return {
     provider: String(row.provider),
     cursor: row.cursor == null ? null : String(row.cursor),
+    status: String(row.status) as SyncStatus,
+    lastAttemptAt: row.last_attempt_at == null ? null : String(row.last_attempt_at),
+    lastSuccessAt: row.last_success_at == null ? null : String(row.last_success_at),
+    failureReason: row.failure_reason == null ? null : String(row.failure_reason),
+    retryCount: Number(row.retry_count),
     updatedAt: String(row.updated_at)
+  }
+}
+
+function quickCaptureInboxRow(row: DbRow): QuickCaptureInboxItem {
+  return {
+    id: Number(row.id),
+    trackId: Number(row.track_id),
+    sourceAppId: String(row.source_app_id),
+    sourceTitle: String(row.source_title),
+    sourceArtist: row.source_artist == null ? null : String(row.source_artist),
+    captureText: row.capture_text == null ? null : String(row.capture_text),
+    capturedAt: String(row.captured_at),
+    resolvedAt: row.resolved_at == null ? null : String(row.resolved_at)
   }
 }
 
@@ -453,6 +523,28 @@ export class MusicRepository {
       .map((row) => trackRow(row as DbRow))
   }
 
+  findTrackByTitleArtist(title: string, artist: string | null): Track | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT * FROM tracks WHERE lower(trim(title)) = lower(trim(?)) AND lower(trim(COALESCE(artist, ''))) = lower(trim(?)) ORDER BY id LIMIT 1"
+      )
+      .get(title, artist ?? '') as DbRow | undefined
+    return row ? trackRow(row) : undefined
+  }
+
+  findTrackByTitleArtistWithoutProvider(
+    title: string,
+    artist: string | null,
+    provider: string
+  ): Track | undefined {
+    const row = this.db
+      .prepare(
+        "SELECT tracks.* FROM tracks WHERE lower(trim(title)) = lower(trim(?)) AND lower(trim(COALESCE(artist, ''))) = lower(trim(?)) AND NOT EXISTS (SELECT 1 FROM provider_tracks WHERE provider_tracks.track_id = tracks.id AND provider_tracks.provider = ?) ORDER BY tracks.id LIMIT 1"
+      )
+      .get(title, artist ?? '', provider) as DbRow | undefined
+    return row ? trackRow(row) : undefined
+  }
+
   touchTracks(trackIds: number[]): void {
     const update = this.db.prepare(
       "UPDATE tracks SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?"
@@ -527,6 +619,33 @@ export class MusicRepository {
     )
   }
 
+  updateProviderTrackMetadata(
+    provider: string,
+    providerTrackId: string,
+    changes: Pick<ProviderTrack, 'url' | 'available' | 'lastSeenAt' | 'metadataJson'>
+  ): ProviderTrack | undefined {
+    const result = this.db
+      .prepare(
+        'UPDATE provider_tracks SET url = ?, available = ?, last_seen_at = ?, metadata_json = ? WHERE provider = ? AND provider_track_id = ?'
+      )
+      .run(
+        changes.url,
+        changes.available ? 1 : 0,
+        changes.lastSeenAt,
+        changes.metadataJson,
+        provider,
+        providerTrackId
+      )
+    return result.changes > 0 ? this.getProviderTrack(provider, providerTrackId) : undefined
+  }
+
+  listProviderTracks(provider: string): ProviderTrack[] {
+    return this.db
+      .prepare('SELECT * FROM provider_tracks WHERE provider = ? ORDER BY id')
+      .all(provider)
+      .map((row) => providerRow(row as DbRow))
+  }
+
   deleteProviderTrack(provider: string, providerTrackId: string): boolean {
     return (
       this.db
@@ -548,6 +667,12 @@ export class MusicRepository {
 
   getTag(id: number): Tag | undefined {
     const row = this.db.prepare('SELECT * FROM tags WHERE id = ?').get(id) as DbRow | undefined
+    return row ? tagRow(row) : undefined
+  }
+
+  getTagByName(name: string): Tag | undefined {
+    const row = this.db.prepare('SELECT * FROM tags WHERE name = ? COLLATE NOCASE').get(name) as
+      DbRow | undefined
     return row ? tagRow(row) : undefined
   }
 
@@ -925,6 +1050,45 @@ export class MusicRepository {
     )
   }
 
+  addQuickCaptureInboxItem(input: NewQuickCaptureInboxItem): QuickCaptureInboxItem {
+    const info = this.db
+      .prepare(
+        'INSERT INTO quick_capture_inbox (track_id, source_app_id, source_title, source_artist, capture_text) VALUES (?, ?, ?, ?, ?)'
+      )
+      .run(
+        input.trackId,
+        input.sourceAppId,
+        input.sourceTitle,
+        input.sourceArtist,
+        input.captureText
+      )
+    return this.getQuickCaptureInboxItem(Number(info.lastInsertRowid))!
+  }
+
+  getQuickCaptureInboxItem(id: number): QuickCaptureInboxItem | undefined {
+    const row = this.db.prepare('SELECT * FROM quick_capture_inbox WHERE id = ?').get(id) as
+      DbRow | undefined
+    return row ? quickCaptureInboxRow(row) : undefined
+  }
+
+  listPendingQuickCaptureInboxItems(): QuickCaptureInboxItem[] {
+    return this.db
+      .prepare(
+        'SELECT * FROM quick_capture_inbox WHERE resolved_at IS NULL ORDER BY captured_at DESC, id DESC'
+      )
+      .all()
+      .map((row) => quickCaptureInboxRow(row as DbRow))
+  }
+
+  resolveQuickCaptureInboxItem(id: number): QuickCaptureInboxItem | undefined {
+    const result = this.db
+      .prepare(
+        "UPDATE quick_capture_inbox SET resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ? AND resolved_at IS NULL"
+      )
+      .run(id)
+    return result.changes > 0 ? this.getQuickCaptureInboxItem(id) : undefined
+  }
+
   getSyncState(provider: string): SyncState | undefined {
     const row = this.db.prepare('SELECT * FROM sync_state WHERE provider = ?').get(provider) as
       DbRow | undefined
@@ -932,11 +1096,31 @@ export class MusicRepository {
   }
 
   setSyncState(provider: string, cursor: string | null): SyncState {
+    const current = this.getSyncState(provider)
+    return this.saveSyncState(provider, {
+      cursor,
+      status: current?.status ?? 'idle',
+      lastAttemptAt: current?.lastAttemptAt ?? null,
+      lastSuccessAt: current?.lastSuccessAt ?? null,
+      failureReason: current?.failureReason ?? null,
+      retryCount: current?.retryCount ?? 0
+    })
+  }
+
+  saveSyncState(provider: string, state: SyncStateUpdate): SyncState {
     this.db
       .prepare(
-        "INSERT INTO sync_state (provider, cursor) VALUES (?, ?) ON CONFLICT(provider) DO UPDATE SET cursor = excluded.cursor, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')"
+        "INSERT INTO sync_state (provider, cursor, status, last_attempt_at, last_success_at, failure_reason, retry_count) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(provider) DO UPDATE SET cursor = excluded.cursor, status = excluded.status, last_attempt_at = excluded.last_attempt_at, last_success_at = excluded.last_success_at, failure_reason = excluded.failure_reason, retry_count = excluded.retry_count, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')"
       )
-      .run(provider, cursor)
+      .run(
+        provider,
+        state.cursor,
+        state.status,
+        state.lastAttemptAt,
+        state.lastSuccessAt,
+        state.failureReason,
+        state.retryCount
+      )
     return this.getSyncState(provider)!
   }
 }

@@ -35,6 +35,7 @@ describe('music database persistence', () => {
           'memory_tracks',
           'notes',
           'provider_tracks',
+          'quick_capture_inbox',
           'schema_migrations',
           'search_documents',
           'search_documents_fts',
@@ -74,6 +75,20 @@ describe('music database persistence', () => {
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
+        CREATE TABLE tracks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          artist TEXT,
+          album TEXT,
+          duration_ms INTEGER,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE sync_state (
+          provider TEXT PRIMARY KEY,
+          cursor TEXT,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
         INSERT INTO memories (title, body) VALUES ('旧事件', '仍需保留');
       `)
       db.pragma('user_version = 1')
@@ -111,7 +126,17 @@ describe('music database persistence', () => {
         DROP TABLE search_documents_fts;
         DROP TABLE search_documents;
         DROP TABLE search_query_log;
-        DELETE FROM schema_migrations WHERE version = 3;
+        DROP TABLE quick_capture_inbox;
+        ALTER TABLE sync_state RENAME TO sync_state_v4;
+        CREATE TABLE sync_state (
+          provider TEXT PRIMARY KEY CHECK (length(trim(provider)) > 0),
+          cursor TEXT,
+          updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+        INSERT INTO sync_state (provider, cursor, updated_at)
+          SELECT provider, cursor, updated_at FROM sync_state_v4;
+        DROP TABLE sync_state_v4;
+        DELETE FROM schema_migrations WHERE version >= 3;
       `)
       db.pragma('user_version = 2')
       db.close()
@@ -133,6 +158,61 @@ describe('music database persistence', () => {
     }
   })
 
+  it('upgrades v3 sync metadata without losing personal records', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'memory-music-v3-'))
+    const databasePath = join(directory, 'memory-music.sqlite3')
+    let db = openMusicDatabase(databasePath)
+
+    try {
+      const repository = new MusicRepository(db)
+      const track = repository.createTrack({
+        title: '迁移保留歌曲',
+        artist: '迁移歌手',
+        album: null,
+        durationMs: null
+      })
+      const tag = repository.createTag('迁移标签')
+      repository.tagTrack(track.id, tag.id)
+      repository.addNote(track.id, '迁移前感悟')
+      repository.setSyncState('netease', 'legacy-cursor')
+
+      db.exec(`
+        DROP TABLE quick_capture_inbox;
+        ALTER TABLE sync_state RENAME TO sync_state_v4;
+        CREATE TABLE sync_state (
+          provider TEXT PRIMARY KEY CHECK (length(trim(provider)) > 0),
+          cursor TEXT,
+          updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+        );
+        INSERT INTO sync_state (provider, cursor, updated_at)
+          SELECT provider, cursor, updated_at FROM sync_state_v4;
+        DROP TABLE sync_state_v4;
+        DELETE FROM schema_migrations WHERE version = 4;
+      `)
+      db.pragma('user_version = 3')
+      db.close()
+
+      db = openMusicDatabase(databasePath)
+      const reopenedRepository = new MusicRepository(db)
+
+      expect(db.pragma('user_version', { simple: true })).toBe(CURRENT_SCHEMA_VERSION)
+      expect(reopenedRepository.getTrack(track.id)?.title).toBe('迁移保留歌曲')
+      expect(reopenedRepository.tagsForTrack(track.id)).toMatchObject([{ name: '迁移标签' }])
+      expect(reopenedRepository.notesForTrack(track.id)).toMatchObject([{ body: '迁移前感悟' }])
+      expect(reopenedRepository.getSyncState('netease')).toMatchObject({
+        cursor: 'legacy-cursor',
+        status: 'idle',
+        lastAttemptAt: null,
+        lastSuccessAt: null,
+        failureReason: null,
+        retryCount: 0
+      })
+    } finally {
+      if (db.open) db.close()
+      rmSync(directory, { force: true, recursive: true })
+    }
+  })
+
   it('persists records across file database restarts without rerunning migrations', () => {
     const directory = mkdtempSync(join(tmpdir(), 'memory-music-'))
     const databasePath = join(directory, 'nested', 'memory-music.sqlite3')
@@ -140,11 +220,26 @@ describe('music database persistence', () => {
 
     try {
       const repository = new MusicRepository(db)
-      repository.createTrack({
+      const track = repository.createTrack({
         title: 'Persistent Song',
         artist: 'Artist',
         album: null,
         durationMs: 1234
+      })
+      repository.addQuickCaptureInboxItem({
+        trackId: track.id,
+        sourceAppId: 'test.player',
+        sourceTitle: 'Persistent Song',
+        sourceArtist: 'Artist',
+        captureText: '稍后补充'
+      })
+      repository.saveSyncState('netease', {
+        cursor: 'page-2',
+        status: 'failed',
+        lastAttemptAt: '2026-07-15T10:00:00.000Z',
+        lastSuccessAt: null,
+        failureReason: 'temporary outage',
+        retryCount: 1
       })
       db.close()
 
@@ -154,6 +249,15 @@ describe('music database persistence', () => {
       expect(reopenedRepository.listTracks()).toMatchObject([
         { title: 'Persistent Song', artist: 'Artist', durationMs: 1234 }
       ])
+      expect(reopenedRepository.listPendingQuickCaptureInboxItems()).toMatchObject([
+        { trackId: track.id, captureText: '稍后补充', resolvedAt: null }
+      ])
+      expect(reopenedRepository.getSyncState('netease')).toMatchObject({
+        cursor: 'page-2',
+        status: 'failed',
+        failureReason: 'temporary outage',
+        retryCount: 1
+      })
       expect(db.prepare('SELECT count(*) AS count FROM schema_migrations').get()).toEqual({
         count: CURRENT_SCHEMA_VERSION
       })
@@ -289,6 +393,16 @@ describe('music database persistence', () => {
       const memory = repository.createMemory('Trip', 'keep this too')
       repository.linkMemoryTrack(memory.id, track.id)
 
+      expect(
+        repository.updateProviderTrackMetadata('stream', 'gone', {
+          url: 'https://example.test/song/gone',
+          available: true,
+          lastSeenAt: '2026-07-15T11:00:00.000Z',
+          metadataJson: '{"title":"platform title"}'
+        })
+      ).toMatchObject({ available: true, metadataJson: '{"title":"platform title"}' })
+      expect(repository.getTrack(track.id)?.title).toBe('Preserved')
+
       expect(repository.markProviderTrackUnavailable('stream', 'gone')).toBe(true)
       expect(repository.getProviderTrack('stream', 'gone')?.available).toBe(false)
       expect(repository.deleteProviderTrack('stream', 'gone')).toBe(true)
@@ -330,11 +444,25 @@ describe('music database persistence', () => {
         lastSeenAt: null,
         metadataJson: null
       })
+      repository.addQuickCaptureInboxItem({
+        trackId: track.id,
+        sourceAppId: 'test.player',
+        sourceTitle: 'Delete',
+        sourceArtist: null,
+        captureText: null
+      })
 
       expect(repository.deleteTrack(track.id)).toBe(true)
       expect(repository.getTrack(track.id)).toBeUndefined()
 
-      for (const table of ['aliases', 'memory_tracks', 'notes', 'provider_tracks', 'track_tags']) {
+      for (const table of [
+        'aliases',
+        'memory_tracks',
+        'notes',
+        'provider_tracks',
+        'quick_capture_inbox',
+        'track_tags'
+      ]) {
         expect(db.prepare(`SELECT count(*) AS count FROM ${table}`).get()).toEqual({ count: 0 })
       }
 

@@ -158,6 +158,110 @@ select option {
   box-shadow: 0 0 13px rgb(140 194 140 / 70%);
 }
 
+.quick-capture-shell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 18px;
+}
+
+.quick-capture-card {
+  width: min(100%, 410px);
+  padding: 24px;
+  background: linear-gradient(145deg, rgb(212 154 98 / 11%), transparent 48%), var(--panel);
+}
+
+.quick-capture-heading {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.quick-capture-heading h1 {
+  margin: 6px 0 0;
+  font-family: Georgia, 'Noto Serif SC', serif;
+  font-size: 28px;
+  font-weight: 500;
+}
+
+.capture-media {
+  display: grid;
+  gap: 4px;
+  min-height: 82px;
+  margin: 18px 0;
+  padding: 15px;
+  background: rgb(0 0 0 / 20%);
+  border: 1px solid var(--border);
+  border-radius: 13px;
+}
+
+.capture-media strong {
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capture-media span,
+.capture-media small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capture-media small {
+  color: var(--green);
+}
+
+.empty-capture small {
+  color: var(--muted);
+}
+
+.capture-kind-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+}
+
+.capture-kind-tabs label {
+  display: block;
+  padding: 8px 6px;
+  color: var(--muted);
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.capture-kind-tabs label.active {
+  color: var(--text);
+  background: rgb(212 154 98 / 13%);
+  border-color: rgb(212 154 98 / 30%);
+}
+
+.capture-kind-tabs input {
+  position: absolute;
+  width: 1px;
+  min-height: 1px;
+  opacity: 0;
+}
+
+.quick-capture-card textarea {
+  min-height: 92px;
+}
+
+.capture-shortcut-hint {
+  margin: 14px 0 0;
+  color: var(--faint);
+  font-size: 9px;
+  text-align: center;
+}
+
 .now-playing-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -445,6 +549,68 @@ select option {
 .events-column {
   display: grid;
   gap: 18px;
+}
+
+.import-panel .secondary-button {
+  margin-top: 4px;
+}
+
+.import-panel .form-error,
+.import-panel .success-copy {
+  margin-top: 10px;
+}
+
+.inbox-list {
+  display: grid;
+  gap: 8px;
+  max-height: 360px;
+  overflow: auto;
+}
+
+.inbox-item {
+  display: grid;
+  gap: 8px;
+  padding: 11px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+}
+
+.inbox-track {
+  display: grid;
+  gap: 3px;
+  padding: 0;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+}
+
+.inbox-track strong {
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-track span,
+.inbox-item time {
+  color: var(--faint);
+  font-size: 9px;
+}
+
+.inbox-item > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.inbox-item > div {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .panel {
