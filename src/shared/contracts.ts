@@ -7,7 +7,8 @@ export interface RuntimeInfo {
   }
 }
 
-export type ApiErrorCode = 'VALIDATION' | 'NOT_FOUND' | 'CONFLICT' | 'STORAGE'
+export type ApiErrorCode =
+  'VALIDATION' | 'NOT_FOUND' | 'CONFLICT' | 'STORAGE' | 'PLAYBACK' | 'UNSUPPORTED'
 
 export interface ApiError {
   code: ApiErrorCode
@@ -110,6 +111,31 @@ export interface SearchResponseDto {
 export interface SearchIndexStatsDto {
   documentCount: number
   rebuiltAt: string
+}
+
+export type PlaybackLaunchMethod = 'protocol' | 'web'
+
+export interface PlaybackLaunchResultDto {
+  trackId: number
+  method: PlaybackLaunchMethod
+  protocolAttempted: boolean
+  webUrl: string
+  message: string
+}
+
+export type PlaybackStatus = 'playing' | 'paused' | 'stopped' | 'closed' | 'unknown'
+
+export interface NowPlayingDto {
+  sourceAppId: string
+  title: string
+  artist: string
+  albumTitle: string
+  status: PlaybackStatus
+}
+
+export interface PlaybackControlResultDto {
+  accepted: boolean
+  nowPlaying: NowPlayingDto | null
 }
 
 export type SearchMissingField =
@@ -230,9 +256,20 @@ export interface LibraryApi {
   rebuildSearchIndex(): Promise<ApiResult<SearchIndexStatsDto>>
 }
 
+export interface PlaybackApi {
+  play(input: TrackIdInput): Promise<ApiResult<PlaybackLaunchResultDto>>
+  openWeb(input: TrackIdInput): Promise<ApiResult<PlaybackLaunchResultDto>>
+  getNowPlaying(): Promise<ApiResult<NowPlayingDto | null>>
+  pause(): Promise<ApiResult<PlaybackControlResultDto>>
+  resume(): Promise<ApiResult<PlaybackControlResultDto>>
+  next(): Promise<ApiResult<PlaybackControlResultDto>>
+  previous(): Promise<ApiResult<PlaybackControlResultDto>>
+}
+
 export interface MemoryMusicApi {
   getRuntimeInfo(): Promise<RuntimeInfo>
   library: LibraryApi
+  playback: PlaybackApi
 }
 
 export const LIBRARY_IPC_CHANNELS = {
@@ -258,4 +295,14 @@ export const LIBRARY_IPC_CHANNELS = {
   search: 'library:search',
   recordSearchFeedback: 'library:search:feedback',
   rebuildSearchIndex: 'library:search:rebuild'
+} as const
+
+export const PLAYBACK_IPC_CHANNELS = {
+  play: 'playback:play',
+  openWeb: 'playback:open-web',
+  getNowPlaying: 'playback:now-playing',
+  pause: 'playback:pause',
+  resume: 'playback:resume',
+  next: 'playback:next',
+  previous: 'playback:previous'
 } as const

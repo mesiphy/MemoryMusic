@@ -1,9 +1,15 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import type { LibraryApi, SearchMissingField, SearchResponseDto } from '@shared/contracts'
+import { reactive, ref } from 'vue'
+import type {
+  LibraryApi,
+  PlaybackApi,
+  SearchMissingField,
+  SearchResponseDto
+} from '@shared/contracts'
 
 const props = defineProps<{
   api: LibraryApi
+  playbackApi: PlaybackApi
 }>()
 
 const emit = defineEmits<{
@@ -17,6 +23,13 @@ const error = ref('')
 const feedbackField = ref<SearchMissingField | ''>('')
 const feedbackSaved = ref(false)
 const indexMessage = ref('')
+const playbackBusyTrackId = ref<number | null>(null)
+const playbackNotices = reactive<
+  Record<
+    number,
+    { kind: 'success' | 'error'; message: string; showWebFallback: boolean } | undefined
+  >
+>({})
 
 async function submit(): Promise<void> {
   error.value = ''
@@ -50,6 +63,64 @@ function clearSearch(): void {
   error.value = ''
   feedbackField.value = ''
   feedbackSaved.value = false
+  for (const trackId of Object.keys(playbackNotices).map(Number)) delete playbackNotices[trackId]
+}
+
+async function playTrack(trackId: number): Promise<void> {
+  playbackBusyTrackId.value = trackId
+  delete playbackNotices[trackId]
+  try {
+    const result = await props.playbackApi.play({ trackId })
+    if (!result.ok) {
+      playbackNotices[trackId] = {
+        kind: 'error',
+        message: result.error.message,
+        showWebFallback: result.error.code === 'PLAYBACK'
+      }
+      return
+    }
+    playbackNotices[trackId] = {
+      kind: 'success',
+      message: result.value.message,
+      showWebFallback: result.value.method === 'protocol'
+    }
+  } catch {
+    playbackNotices[trackId] = {
+      kind: 'error',
+      message: '发起播放失败，请重试',
+      showWebFallback: true
+    }
+  } finally {
+    playbackBusyTrackId.value = null
+  }
+}
+
+async function openWeb(trackId: number): Promise<void> {
+  playbackBusyTrackId.value = trackId
+  try {
+    const result = await props.playbackApi.openWeb({ trackId })
+    if (!result.ok) {
+      playbackNotices[trackId] = {
+        kind: 'error',
+        message: result.error.message,
+        showWebFallback: true
+      }
+      return
+    }
+    playbackNotices[trackId] = {
+      kind: 'success',
+      message: result.value.message,
+      showWebFallback: false
+    }
+  } catch {
+    playbackNotices[trackId] = {
+      kind: 'error',
+      message: '打开歌曲网页失败，请重试',
+      showWebFallback: true
+    }
+  } finally {
+    playbackBusyTrackId.value = null
+  }
 }
 
 async function recordFeedback(): Promise<void> {
@@ -135,31 +206,66 @@ async function rebuildIndex(): Promise<void> {
         <span>{{ response.mode === 'fts' ? '全文索引匹配' : '短词包含匹配' }}</span>
       </div>
       <div class="search-result-grid">
-        <button
+        <article
           v-for="result in response.results"
           :key="result.track.id"
           class="search-result-card"
-          type="button"
-          @click="emit('select', result.track.id)"
         >
-          <span class="result-track-copy">
-            <strong>{{ result.track.title }}</strong>
-            <span
-              >{{ result.track.artist || '未知歌手' }} ·
-              {{ result.track.album || '未填写专辑' }}</span
-            >
-          </span>
-          <span class="match-reasons">
-            <span
-              v-for="(match, matchIndex) in result.matches"
-              :key="`${match.field}-${matchIndex}-${match.value}`"
-            >
-              <small>命中{{ match.label }}</small>
-              <span>{{ match.value }}</span>
+          <button
+            class="search-result-select"
+            type="button"
+            @click="emit('select', result.track.id)"
+          >
+            <span class="result-track-copy">
+              <strong>{{ result.track.title }}</strong>
+              <span
+                >{{ result.track.artist || '未知歌手' }} ·
+                {{ result.track.album || '未填写专辑' }}</span
+              >
             </span>
-          </span>
-          <span v-if="result.matchedPersonalField" class="personal-match-badge">个人线索优先</span>
-        </button>
+            <span class="match-reasons">
+              <span
+                v-for="(match, matchIndex) in result.matches"
+                :key="`${match.field}-${matchIndex}-${match.value}`"
+              >
+                <small>命中{{ match.label }}</small>
+                <span>{{ match.value }}</span>
+              </span>
+            </span>
+            <span v-if="result.matchedPersonalField" class="personal-match-badge"
+              >个人线索优先</span
+            >
+          </button>
+          <div class="playback-actions">
+            <button
+              class="secondary-button"
+              :data-testid="`play-track-${result.track.id}`"
+              type="button"
+              :disabled="playbackBusyTrackId === result.track.id"
+              @click="playTrack(result.track.id)"
+            >
+              {{ playbackBusyTrackId === result.track.id ? '正在唤起…' : '用网易云播放' }}
+            </button>
+            <button
+              v-if="playbackNotices[result.track.id]?.showWebFallback"
+              class="text-button"
+              :data-testid="`open-web-${result.track.id}`"
+              type="button"
+              :disabled="playbackBusyTrackId === result.track.id"
+              @click="openWeb(result.track.id)"
+            >
+              打开歌曲网页
+            </button>
+          </div>
+          <p
+            v-if="playbackNotices[result.track.id]"
+            class="playback-notice"
+            :class="playbackNotices[result.track.id]?.kind"
+            :role="playbackNotices[result.track.id]?.kind === 'error' ? 'alert' : 'status'"
+          >
+            {{ playbackNotices[result.track.id]?.message }}
+          </p>
+        </article>
       </div>
     </div>
 

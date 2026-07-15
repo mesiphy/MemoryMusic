@@ -2,8 +2,12 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
 import type { RuntimeInfo } from '../shared/contracts'
 import { registerLibraryIpcHandlers } from './ipc/library-ipc'
+import { registerPlaybackIpcHandlers } from './ipc/playback-ipc'
 import { MusicRepository, openMusicDatabase, type SqliteDatabase } from './persistence/database'
+import { NeteaseProtocolPlaybackAdapter } from './playback/netease-protocol-adapter'
+import { WindowsSmtcAdapter } from './playback/windows-smtc-adapter'
 import { LibraryService } from './services/library-service'
+import { PlaybackService } from './services/playback-service'
 
 const APP_ID = 'com.memorymusic.app'
 const DATABASE_FILENAME = 'memory-music.sqlite3'
@@ -58,7 +62,18 @@ void app
   .then(() => {
     app.setAppUserModelId(APP_ID)
     musicDatabase = openMusicDatabase(join(app.getPath('userData'), DATABASE_FILENAME))
-    registerLibraryIpcHandlers(ipcMain, new LibraryService(new MusicRepository(musicDatabase)))
+    const repository = new MusicRepository(musicDatabase)
+    registerLibraryIpcHandlers(ipcMain, new LibraryService(repository))
+    registerPlaybackIpcHandlers(
+      ipcMain,
+      new PlaybackService(
+        repository,
+        new NeteaseProtocolPlaybackAdapter({
+          openExternal: (url) => shell.openExternal(url)
+        }),
+        new WindowsSmtcAdapter()
+      )
+    )
 
     ipcMain.handle('app:get-runtime-info', (): RuntimeInfo => {
       return {

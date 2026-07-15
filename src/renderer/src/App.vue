@@ -8,6 +8,7 @@ import type {
   TrackFormInput
 } from '@shared/contracts'
 import MemoryPanel from './components/MemoryPanel.vue'
+import NowPlayingPanel from './components/NowPlayingPanel.vue'
 import SearchPanel from './components/SearchPanel.vue'
 import TagManager from './components/TagManager.vue'
 import TrackCreateForm from './components/TrackCreateForm.vue'
@@ -15,6 +16,7 @@ import TrackDetail from './components/TrackDetail.vue'
 import TrackList from './components/TrackList.vue'
 
 const api = window.memoryMusic.library
+const playbackApi = window.memoryMusic.playback
 const snapshot = ref<LibrarySnapshotDto>({ tracks: [], tags: [], memories: [] })
 const selectedTrackId = ref<number | null>(null)
 const selectedTrack = ref<TrackDetailDto | null>(null)
@@ -111,7 +113,9 @@ async function afterTrackDeleted(): Promise<void> {
       </div>
     </header>
 
-    <SearchPanel :api="api" @select="loadTrack" />
+    <NowPlayingPanel :api="playbackApi" />
+
+    <SearchPanel :api="api" :playback-api="playbackApi" @select="loadTrack" />
 
     <div v-if="loadError" class="load-error" role="alert">
       <span>{{ loadError }}</span>

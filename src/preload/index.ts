@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import {
   LIBRARY_IPC_CHANNELS,
+  PLAYBACK_IPC_CHANNELS,
   type ApiResult,
   type MemoryMusicApi,
   type RuntimeInfo
@@ -35,6 +36,15 @@ const api: MemoryMusicApi = {
     search: (input) => invoke(LIBRARY_IPC_CHANNELS.search, input),
     recordSearchFeedback: (input) => invoke(LIBRARY_IPC_CHANNELS.recordSearchFeedback, input),
     rebuildSearchIndex: () => invoke(LIBRARY_IPC_CHANNELS.rebuildSearchIndex)
+  },
+  playback: {
+    play: (input) => invoke(PLAYBACK_IPC_CHANNELS.play, input),
+    openWeb: (input) => invoke(PLAYBACK_IPC_CHANNELS.openWeb, input),
+    getNowPlaying: () => invoke(PLAYBACK_IPC_CHANNELS.getNowPlaying),
+    pause: () => invoke(PLAYBACK_IPC_CHANNELS.pause),
+    resume: () => invoke(PLAYBACK_IPC_CHANNELS.resume),
+    next: () => invoke(PLAYBACK_IPC_CHANNELS.next),
+    previous: () => invoke(PLAYBACK_IPC_CHANNELS.previous)
   }
 }
 
