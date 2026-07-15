@@ -53,11 +53,15 @@ export interface Memory {
   title: string
   body: string
   happenedAt: string | null
+  location: string | null
+  people: string | null
   createdAt: string
   updatedAt: string
 }
 
-export type MemoryChanges = Partial<Pick<Memory, 'title' | 'body' | 'happenedAt'>>
+export type MemoryChanges = Partial<
+  Pick<Memory, 'title' | 'body' | 'happenedAt' | 'location' | 'people'>
+>
 
 export interface Alias {
   id: number
@@ -72,7 +76,7 @@ export interface SyncState {
   updatedAt: string
 }
 
-export const CURRENT_SCHEMA_VERSION = 1
+export const CURRENT_SCHEMA_VERSION = 2
 
 const migrations: Readonly<Record<number, string>> = {
   1: `
@@ -141,7 +145,10 @@ CREATE TABLE sync_state (
   provider TEXT PRIMARY KEY CHECK (length(trim(provider)) > 0),
   cursor TEXT,
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-);`
+);`,
+  2: `
+ALTER TABLE memories ADD COLUMN location TEXT;
+ALTER TABLE memories ADD COLUMN people TEXT;`
 }
 
 export function openMusicDatabase(path = ':memory:'): SqliteDatabase {
@@ -260,6 +267,8 @@ function memoryRow(row: DbRow): Memory {
     title: String(row.title),
     body: String(row.body),
     happenedAt: row.happened_at == null ? null : String(row.happened_at),
+    location: row.location == null ? null : String(row.location),
+    people: row.people == null ? null : String(row.people),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at)
   }
@@ -285,6 +294,10 @@ function syncStateRow(row: DbRow): SyncState {
 export class MusicRepository {
   constructor(private readonly db: SqliteDatabase) {}
 
+  transaction<T>(operation: () => T): T {
+    return this.db.transaction(operation)()
+  }
+
   createTrack(track: NewTrack): Track {
     const info = this.db
       .prepare('INSERT INTO tracks (title, artist, album, duration_ms) VALUES (?, ?, ?, ?)')
@@ -299,7 +312,7 @@ export class MusicRepository {
 
   listTracks(): Track[] {
     return this.db
-      .prepare('SELECT * FROM tracks ORDER BY id')
+      .prepare('SELECT * FROM tracks ORDER BY updated_at DESC, id DESC')
       .all()
       .map((row) => trackRow(row as DbRow))
   }
@@ -379,6 +392,12 @@ export class MusicRepository {
     )
   }
 
+  deleteProviderTracksForTrack(trackId: number, provider: string): number {
+    return this.db
+      .prepare('DELETE FROM provider_tracks WHERE track_id = ? AND provider = ?')
+      .run(trackId, provider).changes
+  }
+
   createTag(name: string, color: string | null = null): Tag {
     const info = this.db.prepare('INSERT INTO tags (name, color) VALUES (?, ?)').run(name, color)
     return this.getTag(Number(info.lastInsertRowid))!
@@ -414,6 +433,23 @@ export class MusicRepository {
     return this.db.prepare('DELETE FROM tags WHERE id = ?').run(id).changes > 0
   }
 
+  mergeTags(sourceTagId: number, targetTagId: number): Tag | undefined {
+    if (sourceTagId === targetTagId) return this.getTag(targetTagId)
+
+    return this.transaction(() => {
+      const target = this.getTag(targetTagId)
+      if (!target || !this.getTag(sourceTagId)) return undefined
+
+      this.db
+        .prepare(
+          'INSERT OR IGNORE INTO track_tags (track_id, tag_id) SELECT track_id, ? FROM track_tags WHERE tag_id = ?'
+        )
+        .run(targetTagId, sourceTagId)
+      this.db.prepare('DELETE FROM tags WHERE id = ?').run(sourceTagId)
+      return target
+    })
+  }
+
   tagTrack(trackId: number, tagId: number): void {
     this.db
       .prepare('INSERT OR IGNORE INTO track_tags (track_id, tag_id) VALUES (?, ?)')
@@ -426,6 +462,15 @@ export class MusicRepository {
         .prepare('DELETE FROM track_tags WHERE track_id = ? AND tag_id = ?')
         .run(trackId, tagId).changes > 0
     )
+  }
+
+  setTrackTags(trackId: number, tagIds: number[]): void {
+    this.transaction(() => {
+      this.db.prepare('DELETE FROM track_tags WHERE track_id = ?').run(trackId)
+      const insert = this.db.prepare('INSERT INTO track_tags (track_id, tag_id) VALUES (?, ?)')
+
+      for (const tagId of new Set(tagIds)) insert.run(trackId, tagId)
+    })
   }
 
   tagsForTrack(trackId: number): Tag[] {
@@ -469,10 +514,18 @@ export class MusicRepository {
       .map((row) => noteRow(row as DbRow))
   }
 
-  createMemory(title: string, body: string, happenedAt: string | null = null): Memory {
+  createMemory(
+    title: string,
+    body: string,
+    happenedAt: string | null = null,
+    location: string | null = null,
+    people: string | null = null
+  ): Memory {
     const info = this.db
-      .prepare('INSERT INTO memories (title, body, happened_at) VALUES (?, ?, ?)')
-      .run(title, body, happenedAt)
+      .prepare(
+        'INSERT INTO memories (title, body, happened_at, location, people) VALUES (?, ?, ?, ?, ?)'
+      )
+      .run(title, body, happenedAt, location, people)
     return this.getMemory(Number(info.lastInsertRowid))!
   }
 
@@ -481,18 +534,27 @@ export class MusicRepository {
     return row ? memoryRow(row) : undefined
   }
 
+  listMemories(): Memory[] {
+    return this.db
+      .prepare('SELECT * FROM memories ORDER BY happened_at DESC, updated_at DESC, id DESC')
+      .all()
+      .map((row) => memoryRow(row as DbRow))
+  }
+
   updateMemory(id: number, changes: MemoryChanges): Memory | undefined {
     const current = this.getMemory(id)
     if (!current) return undefined
 
     this.db
       .prepare(
-        "UPDATE memories SET title = ?, body = ?, happened_at = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?"
+        "UPDATE memories SET title = ?, body = ?, happened_at = ?, location = ?, people = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?"
       )
       .run(
         changes.title ?? current.title,
         changes.body ?? current.body,
         changes.happenedAt === undefined ? current.happenedAt : changes.happenedAt,
+        changes.location === undefined ? current.location : changes.location,
+        changes.people === undefined ? current.people : changes.people,
         id
       )
     return this.getMemory(id)
@@ -514,6 +576,17 @@ export class MusicRepository {
         .prepare('DELETE FROM memory_tracks WHERE memory_id = ? AND track_id = ?')
         .run(memoryId, trackId).changes > 0
     )
+  }
+
+  setMemoryTracks(memoryId: number, trackIds: number[]): void {
+    this.transaction(() => {
+      this.db.prepare('DELETE FROM memory_tracks WHERE memory_id = ?').run(memoryId)
+      const insert = this.db.prepare(
+        'INSERT INTO memory_tracks (memory_id, track_id) VALUES (?, ?)'
+      )
+
+      for (const trackId of new Set(trackIds)) insert.run(memoryId, trackId)
+    })
   }
 
   tracksForMemory(memoryId: number): Track[] {
@@ -542,6 +615,18 @@ export class MusicRepository {
       .prepare('SELECT * FROM aliases WHERE id = ?')
       .get(info.lastInsertRowid) as DbRow
     return aliasRow(row)
+  }
+
+  getAlias(id: number): Alias | undefined {
+    const row = this.db.prepare('SELECT * FROM aliases WHERE id = ?').get(id) as DbRow | undefined
+    return row ? aliasRow(row) : undefined
+  }
+
+  updateAlias(id: number, name: string, kind: string): Alias | undefined {
+    const result = this.db
+      .prepare('UPDATE aliases SET name = ?, kind = ? WHERE id = ?')
+      .run(name, kind, id)
+    return result.changes > 0 ? this.getAlias(id) : undefined
   }
 
   deleteAlias(id: number): boolean {

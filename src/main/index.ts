@@ -1,7 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
 import type { RuntimeInfo } from '../shared/contracts'
-import { openMusicDatabase, type SqliteDatabase } from './persistence/database'
+import { registerLibraryIpcHandlers } from './ipc/library-ipc'
+import { MusicRepository, openMusicDatabase, type SqliteDatabase } from './persistence/database'
+import { LibraryService } from './services/library-service'
 
 const APP_ID = 'com.memorymusic.app'
 const DATABASE_FILENAME = 'memory-music.sqlite3'
@@ -56,6 +58,7 @@ void app
   .then(() => {
     app.setAppUserModelId(APP_ID)
     musicDatabase = openMusicDatabase(join(app.getPath('userData'), DATABASE_FILENAME))
+    registerLibraryIpcHandlers(ipcMain, new LibraryService(new MusicRepository(musicDatabase)))
 
     ipcMain.handle('app:get-runtime-info', (): RuntimeInfo => {
       return {

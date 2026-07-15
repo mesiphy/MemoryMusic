@@ -21,10 +21,15 @@ Run these before handing off code changes:
 
 Database changes must also prove that a new file can migrate to the latest version, migrations can run repeatedly, records survive a close/reopen cycle, and deleting a provider mapping preserves personal data.
 
+Core renderer interactions must cover both confirmed success and failure behavior. A failed save must remain visibly failed and must not clear user-entered form data.
+
 ## Architecture constraints
 
 - SQLite persistence belongs in the Electron main process only.
 - Keep the renderer sandboxed: no Node integration and no direct database access.
+- Keep renderer/main contracts and IPC channel names in `src/shared/contracts.ts`; expose only the typed `window.memoryMusic` API from preload.
+- Treat every IPC payload as untrusted. Validate and normalize it in the main-process service before starting Repository writes, and return the stable `ApiResult` envelope instead of leaking SQLite errors.
+- Add schema changes as ordered migrations and include an upgrade test that proves existing personal records survive.
 - Personal tags, notes, memories, and aliases must not be deleted when a provider track becomes unavailable or its mapping is removed.
 - Cloud work may implement and test platform-neutral logic. NetEase desktop integration, `orpheus://`, SMTC, Credential Manager, and Windows installers require local Windows verification.
 - Do not add NetEase private APIs, credential handling, or playback integration before its planned milestone.

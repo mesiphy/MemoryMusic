@@ -26,8 +26,8 @@
     "test": "node scripts/run-tests.mjs"
   },
   "dependencies": {
-    "vue": "^3.5.25",
-    "better-sqlite3": "^12.4.6"
+    "better-sqlite3": "^12.4.6",
+    "vue": "^3.5.25"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "3.0.0",
@@ -36,11 +36,13 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.19.1",
     "@vitejs/plugin-vue": "^6.0.2",
+    "@vue/test-utils": "^2.4.11",
     "electron": "^39.2.6",
     "electron-builder": "^26.0.12",
     "electron-vite": "^5.0.0",
     "eslint": "^9.39.1",
     "eslint-plugin-vue": "^10.6.2",
+    "jsdom": "^29.1.1",
     "prettier": "^3.7.4",
     "typescript": "^5.9.3",
     "vite": "^7.2.6",

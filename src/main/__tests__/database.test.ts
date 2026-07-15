@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import Database from 'better-sqlite3'
 import { describe, expect, it } from 'vitest'
 import {
   CURRENT_SCHEMA_VERSION,
@@ -15,7 +16,8 @@ describe('music database persistence', () => {
 
     try {
       expect(db.pragma('user_version', { simple: true })).toBe(CURRENT_SCHEMA_VERSION)
-      expect(db.prepare('SELECT version FROM schema_migrations').all()).toEqual([
+      expect(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()).toEqual([
+        { version: 1 },
         { version: CURRENT_SCHEMA_VERSION }
       ])
       expect(
@@ -40,9 +42,46 @@ describe('music database persistence', () => {
 
       migrate(db)
 
-      expect(db.prepare('SELECT version FROM schema_migrations').all()).toEqual([
+      expect(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()).toEqual([
+        { version: 1 },
         { version: CURRENT_SCHEMA_VERSION }
       ])
+    } finally {
+      db.close()
+    }
+  })
+
+  it('upgrades an existing v1 memory table without losing records', () => {
+    const db = new Database(':memory:')
+
+    try {
+      db.exec(`
+        CREATE TABLE schema_migrations (
+          version INTEGER PRIMARY KEY,
+          applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO schema_migrations (version) VALUES (1);
+        CREATE TABLE memories (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          body TEXT NOT NULL,
+          happened_at TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        INSERT INTO memories (title, body) VALUES ('旧事件', '仍需保留');
+      `)
+      db.pragma('user_version = 1')
+
+      migrate(db)
+
+      expect(db.pragma('user_version', { simple: true })).toBe(CURRENT_SCHEMA_VERSION)
+      expect(db.prepare('SELECT title, body, location, people FROM memories').get()).toEqual({
+        title: '旧事件',
+        body: '仍需保留',
+        location: null,
+        people: null
+      })
     } finally {
       db.close()
     }
@@ -70,7 +109,7 @@ describe('music database persistence', () => {
         { title: 'Persistent Song', artist: 'Artist', durationMs: 1234 }
       ])
       expect(db.prepare('SELECT count(*) AS count FROM schema_migrations').get()).toEqual({
-        count: 1
+        count: CURRENT_SCHEMA_VERSION
       })
       expect(db.pragma('foreign_keys', { simple: true })).toBe(1)
       expect(db.pragma('journal_mode', { simple: true })).toBe('wal')
