@@ -1,8 +1,12 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
 import type { RuntimeInfo } from '../shared/contracts'
+import { openMusicDatabase, type SqliteDatabase } from './persistence/database'
 
 const APP_ID = 'com.memorymusic.app'
+const DATABASE_FILENAME = 'memory-music.sqlite3'
+
+let musicDatabase: SqliteDatabase | undefined
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -42,26 +46,41 @@ function createWindow(): BrowserWindow {
   return mainWindow
 }
 
-app.whenReady().then(() => {
-  app.setAppUserModelId(APP_ID)
+function closeMusicDatabase(): void {
+  if (musicDatabase?.open) musicDatabase.close()
+  musicDatabase = undefined
+}
 
-  ipcMain.handle('app:get-runtime-info', (): RuntimeInfo => {
-    return {
-      platform: process.platform,
-      versions: {
-        chrome: process.versions.chrome,
-        electron: process.versions.electron,
-        node: process.versions.node
+void app
+  .whenReady()
+  .then(() => {
+    app.setAppUserModelId(APP_ID)
+    musicDatabase = openMusicDatabase(join(app.getPath('userData'), DATABASE_FILENAME))
+
+    ipcMain.handle('app:get-runtime-info', (): RuntimeInfo => {
+      return {
+        platform: process.platform,
+        versions: {
+          chrome: process.versions.chrome,
+          electron: process.versions.electron,
+          node: process.versions.node
+        }
       }
-    }
+    })
+
+    createWindow()
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
+  })
+  .catch((error: unknown) => {
+    console.error('Failed to initialize the local database', error)
+    dialog.showErrorBox('MemoryMusic 启动失败', '无法打开本地数据库，请检查磁盘空间和目录权限。')
+    app.quit()
   })
 
-  createWindow()
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
-})
+app.on('before-quit', closeMusicDatabase)
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

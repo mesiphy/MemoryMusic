@@ -22,15 +22,18 @@
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json --composite false",
     "postinstall": "electron-builder install-app-deps",
     "package:dir": "pnpm build && electron-builder --dir",
-    "package:win": "pnpm build && electron-builder --win"
+    "package:win": "pnpm build && electron-builder --win",
+    "test": "node scripts/run-tests.mjs"
   },
   "dependencies": {
-    "vue": "^3.5.25"
+    "vue": "^3.5.25",
+    "better-sqlite3": "^12.4.6"
   },
   "devDependencies": {
     "@electron-toolkit/eslint-config-prettier": "3.0.0",
     "@electron-toolkit/eslint-config-ts": "^3.1.0",
     "@electron-toolkit/tsconfig": "^2.0.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.19.1",
     "@vitejs/plugin-vue": "^6.0.2",
     "electron": "^39.2.6",
@@ -41,6 +44,7 @@
     "prettier": "^3.7.4",
     "typescript": "^5.9.3",
     "vite": "^7.2.6",
+    "vitest": "^4.0.16",
     "vue-eslint-parser": "^10.2.0",
     "vue-tsc": "^3.1.6"
   }
