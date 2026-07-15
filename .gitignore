@@ -20,3 +20,15 @@ Desktop.ini
 *.tmp
 *.temp
 
+# Node.js and Electron build output
+node_modules/
+out/
+dist/
+release/
+*.tsbuildinfo
+.eslintcache
+
+# Test and coverage output
+coverage/
+playwright-report/
+test-results/
