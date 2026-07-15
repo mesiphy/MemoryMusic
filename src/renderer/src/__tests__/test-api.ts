@@ -24,6 +24,9 @@ export function testLibraryApi(overrides: Partial<LibraryApi> = {}): LibraryApi 
     createCue: vi.fn(),
     updateCue: vi.fn(),
     deleteCue: successNull,
+    search: vi.fn(),
+    recordSearchFeedback: successNull,
+    rebuildSearchIndex: vi.fn(),
     ...overrides
   } as LibraryApi
 }

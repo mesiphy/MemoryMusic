@@ -7,6 +7,9 @@ import type {
   MemoryDto,
   NoteDto,
   ProviderTrackDto,
+  SearchIndexStatsDto,
+  SearchMissingField,
+  SearchResponseDto,
   TagDto,
   TrackDetailDto,
   TrackSummaryDto
@@ -20,6 +23,7 @@ import {
   type Tag,
   type Track
 } from '../persistence/database'
+import { SearchEngine } from '../search/search-engine'
 
 type InputRecord = Record<string, unknown>
 
@@ -103,6 +107,25 @@ function cueKind(record: InputRecord): CueKind {
     fieldError('kind', '请选择有效的线索类型')
   }
   return value
+}
+
+function searchMissingField(record: InputRecord): SearchMissingField {
+  const value = record.missingField
+  const allowed = new Set<SearchMissingField>([
+    'title',
+    'artist',
+    'album',
+    'alias',
+    'lyric',
+    'tag',
+    'note',
+    'memory',
+    'other'
+  ])
+  if (typeof value !== 'string' || !allowed.has(value as SearchMissingField)) {
+    fieldError('missingField', '请选择有效的缺失字段')
+  }
+  return value as SearchMissingField
 }
 
 function normalizeTimestamp(record: InputRecord): string | null {
@@ -189,7 +212,11 @@ function cueDto(alias: Alias): CueDto {
 }
 
 export class LibraryService {
-  constructor(private readonly repository: MusicRepository) {}
+  private readonly searchEngine: SearchEngine
+
+  constructor(private readonly repository: MusicRepository) {
+    this.searchEngine = new SearchEngine(repository)
+  }
 
   getLibrary(): ApiResult<LibrarySnapshotDto> {
     return this.execute('读取资料库失败，请重试', () => ({
@@ -266,8 +293,10 @@ export class LibraryService {
       const tagId = positiveId(record, 'tagId')
       const name = requiredString(record, 'name', '标签名称', 80)
       const color = this.normalizedColor(record)
+      const trackIds = this.repository.trackIdsForTag(tagId)
       const tag = this.repository.updateTag(tagId, { name, color })
       if (!tag) this.notFound('标签不存在或已被删除')
+      this.repository.touchTracks(trackIds)
       return tagDto(tag)
     })
   }
@@ -275,7 +304,9 @@ export class LibraryService {
   deleteTag(input: unknown): ApiResult<null> {
     return this.execute('删除标签失败，请重试', () => {
       const tagId = positiveId(inputRecord(input), 'tagId')
+      const trackIds = this.repository.trackIdsForTag(tagId)
       if (!this.repository.deleteTag(tagId)) this.notFound('标签不存在或已被删除')
+      this.repository.touchTracks(trackIds)
       return null
     })
   }
@@ -289,7 +320,13 @@ export class LibraryService {
       if (!this.repository.getTag(sourceTagId) || !this.repository.getTag(targetTagId)) {
         this.notFound('待合并的标签不存在')
       }
-      return tagDto(this.repository.mergeTags(sourceTagId, targetTagId)!)
+      const trackIds = [
+        ...this.repository.trackIdsForTag(sourceTagId),
+        ...this.repository.trackIdsForTag(targetTagId)
+      ]
+      const tag = this.repository.mergeTags(sourceTagId, targetTagId)!
+      this.repository.touchTracks(trackIds)
+      return tagDto(tag)
     })
   }
 
@@ -301,6 +338,7 @@ export class LibraryService {
       this.requireTrack(trackId)
       this.requireTags(tagIds)
       this.repository.setTrackTags(trackId, tagIds)
+      this.repository.touchTracks([trackId])
       return null
     })
   }
@@ -311,7 +349,9 @@ export class LibraryService {
       const trackId = positiveId(record, 'trackId')
       const body = requiredString(record, 'body', '感悟内容', 5000)
       this.requireTrack(trackId)
-      return noteDto(this.repository.addNote(trackId, body))
+      const note = this.repository.addNote(trackId, body)
+      this.repository.touchTracks([trackId])
+      return noteDto(note)
     })
   }
 
@@ -320,8 +360,11 @@ export class LibraryService {
       const record = inputRecord(input)
       const noteId = positiveId(record, 'noteId')
       const body = requiredString(record, 'body', '感悟内容', 5000)
+      const current = this.repository.getNote(noteId)
+      if (!current) this.notFound('感悟不存在或已被删除')
       const note = this.repository.updateNote(noteId, body)
       if (!note) this.notFound('感悟不存在或已被删除')
+      this.repository.touchTracks([current.trackId])
       return noteDto(note)
     })
   }
@@ -329,7 +372,10 @@ export class LibraryService {
   deleteNote(input: unknown): ApiResult<null> {
     return this.execute('删除感悟失败，请重试', () => {
       const noteId = positiveId(inputRecord(input), 'noteId')
+      const note = this.repository.getNote(noteId)
+      if (!note) this.notFound('感悟不存在或已被删除')
       if (!this.repository.deleteNote(noteId)) this.notFound('感悟不存在或已被删除')
+      this.repository.touchTracks([note.trackId])
       return null
     })
   }
@@ -348,6 +394,7 @@ export class LibraryService {
           data.people
         )
         this.repository.setMemoryTracks(memory.id, data.trackIds)
+        this.repository.touchTracks(data.trackIds)
         return this.memoryDto(memory)
       })
     })
@@ -360,6 +407,7 @@ export class LibraryService {
       const data = this.normalizedMemory(record)
       if (!this.repository.getMemory(memoryId)) this.notFound('事件不存在或已被删除')
       this.requireTracks(data.trackIds)
+      const previousTrackIds = this.repository.tracksForMemory(memoryId).map((track) => track.id)
 
       return this.repository.transaction(() => {
         const memory = this.repository.updateMemory(memoryId, {
@@ -370,6 +418,7 @@ export class LibraryService {
           people: data.people
         })!
         this.repository.setMemoryTracks(memoryId, data.trackIds)
+        this.repository.touchTracks([...previousTrackIds, ...data.trackIds])
         return this.memoryDto(memory)
       })
     })
@@ -378,7 +427,9 @@ export class LibraryService {
   deleteMemory(input: unknown): ApiResult<null> {
     return this.execute('删除事件失败，请重试', () => {
       const memoryId = positiveId(inputRecord(input), 'memoryId')
+      const trackIds = this.repository.tracksForMemory(memoryId).map((track) => track.id)
       if (!this.repository.deleteMemory(memoryId)) this.notFound('事件不存在或已被删除')
+      this.repository.touchTracks(trackIds)
       return null
     })
   }
@@ -390,7 +441,9 @@ export class LibraryService {
       const name = requiredString(record, 'name', '召回线索', 500)
       const kind = cueKind(record)
       this.requireTrack(trackId)
-      return cueDto(this.repository.addAlias(trackId, name, kind))
+      const cue = this.repository.addAlias(trackId, name, kind)
+      this.repository.touchTracks([trackId])
+      return cueDto(cue)
     })
   }
 
@@ -400,8 +453,11 @@ export class LibraryService {
       const cueId = positiveId(record, 'cueId')
       const name = requiredString(record, 'name', '召回线索', 500)
       const kind = cueKind(record)
+      const current = this.repository.getAlias(cueId)
+      if (!current) this.notFound('召回线索不存在或已被删除')
       const cue = this.repository.updateAlias(cueId, name, kind)
       if (!cue) this.notFound('召回线索不存在或已被删除')
+      this.repository.touchTracks([current.trackId])
       return cueDto(cue)
     })
   }
@@ -409,9 +465,47 @@ export class LibraryService {
   deleteCue(input: unknown): ApiResult<null> {
     return this.execute('删除召回线索失败，请重试', () => {
       const cueId = positiveId(inputRecord(input), 'cueId')
+      const cue = this.repository.getAlias(cueId)
+      if (!cue) this.notFound('召回线索不存在或已被删除')
       if (!this.repository.deleteAlias(cueId)) this.notFound('召回线索不存在或已被删除')
+      this.repository.touchTracks([cue.trackId])
       return null
     })
+  }
+
+  search(input: unknown): ApiResult<SearchResponseDto> {
+    return this.execute('搜索失败，请重试', () => {
+      const query = requiredString(inputRecord(input), 'query', '搜索内容', 200)
+      const result = this.searchEngine.search(query)
+      return {
+        query,
+        normalizedQuery: result.normalizedQuery,
+        mode: result.mode,
+        results: result.results.map((item) => ({
+          track: this.trackSummaryDto(item.track),
+          matches: item.matches,
+          matchedPersonalField: item.matchedPersonalField,
+          exactTitle: item.exactTitle
+        })),
+        noResultLogId: result.noResultLogId
+      }
+    })
+  }
+
+  recordSearchFeedback(input: unknown): ApiResult<null> {
+    return this.execute('记录搜索反馈失败，请重试', () => {
+      const record = inputRecord(input)
+      const queryLogId = positiveId(record, 'queryLogId')
+      const missingField = searchMissingField(record)
+      if (!this.searchEngine.recordMissingField(queryLogId, missingField)) {
+        this.notFound('无结果搜索记录不存在')
+      }
+      return null
+    })
+  }
+
+  rebuildSearchIndex(): ApiResult<SearchIndexStatsDto> {
+    return this.execute('重建搜索索引失败，请重试', () => this.searchEngine.rebuild())
   }
 
   private execute<T>(fallbackMessage: string, operation: () => T): ApiResult<T> {

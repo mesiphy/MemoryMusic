@@ -31,7 +31,10 @@ const api: MemoryMusicApi = {
     deleteMemory: (input) => invoke(LIBRARY_IPC_CHANNELS.deleteMemory, input),
     createCue: (input) => invoke(LIBRARY_IPC_CHANNELS.createCue, input),
     updateCue: (input) => invoke(LIBRARY_IPC_CHANNELS.updateCue, input),
-    deleteCue: (input) => invoke(LIBRARY_IPC_CHANNELS.deleteCue, input)
+    deleteCue: (input) => invoke(LIBRARY_IPC_CHANNELS.deleteCue, input),
+    search: (input) => invoke(LIBRARY_IPC_CHANNELS.search, input),
+    recordSearchFeedback: (input) => invoke(LIBRARY_IPC_CHANNELS.recordSearchFeedback, input),
+    rebuildSearchIndex: () => invoke(LIBRARY_IPC_CHANNELS.rebuildSearchIndex)
   }
 }
 

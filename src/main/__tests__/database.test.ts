@@ -9,6 +9,7 @@ import {
   MusicRepository,
   openMusicDatabase
 } from '../persistence/database'
+import { SearchEngine } from '../search/search-engine'
 
 describe('music database persistence', () => {
   it('migrates a new database exactly once and records its schema version', () => {
@@ -16,10 +17,12 @@ describe('music database persistence', () => {
 
     try {
       expect(db.pragma('user_version', { simple: true })).toBe(CURRENT_SCHEMA_VERSION)
-      expect(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()).toEqual([
-        { version: 1 },
-        { version: CURRENT_SCHEMA_VERSION }
-      ])
+      const expectedVersions = Array.from({ length: CURRENT_SCHEMA_VERSION }, (_, index) => ({
+        version: index + 1
+      }))
+      expect(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()).toEqual(
+        expectedVersions
+      )
       expect(
         db
           .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -33,6 +36,9 @@ describe('music database persistence', () => {
           'notes',
           'provider_tracks',
           'schema_migrations',
+          'search_documents',
+          'search_documents_fts',
+          'search_query_log',
           'sync_state',
           'tags',
           'track_tags',
@@ -42,10 +48,9 @@ describe('music database persistence', () => {
 
       migrate(db)
 
-      expect(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()).toEqual([
-        { version: 1 },
-        { version: CURRENT_SCHEMA_VERSION }
-      ])
+      expect(db.prepare('SELECT version FROM schema_migrations ORDER BY version').all()).toEqual(
+        expectedVersions
+      )
     } finally {
       db.close()
     }
@@ -84,6 +89,47 @@ describe('music database persistence', () => {
       })
     } finally {
       db.close()
+    }
+  })
+
+  it('upgrades a v2 personal library and makes existing records searchable', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'memory-music-v2-'))
+    const databasePath = join(directory, 'memory-music.sqlite3')
+    let db = openMusicDatabase(databasePath)
+
+    try {
+      const repository = new MusicRepository(db)
+      const track = repository.createTrack({
+        title: '旧资料歌曲',
+        artist: '旧歌手',
+        album: null,
+        durationMs: null
+      })
+      repository.addNote(track.id, '迁移前留下的海边记忆')
+      repository.addAlias(track.id, '老名字', 'alias')
+      db.exec(`
+        DROP TABLE search_documents_fts;
+        DROP TABLE search_documents;
+        DROP TABLE search_query_log;
+        DELETE FROM schema_migrations WHERE version = 3;
+      `)
+      db.pragma('user_version = 2')
+      db.close()
+
+      db = openMusicDatabase(databasePath)
+      const reopenedRepository = new MusicRepository(db)
+      const result = new SearchEngine(reopenedRepository).search('海边记忆')
+
+      expect(db.pragma('user_version', { simple: true })).toBe(CURRENT_SCHEMA_VERSION)
+      expect(reopenedRepository.getTrack(track.id)?.title).toBe('旧资料歌曲')
+      expect(reopenedRepository.notesForTrack(track.id)).toMatchObject([
+        { body: '迁移前留下的海边记忆' }
+      ])
+      expect(reopenedRepository.aliasesForTrack(track.id)).toMatchObject([{ name: '老名字' }])
+      expect(result.results[0]?.track.id).toBe(track.id)
+    } finally {
+      if (db.open) db.close()
+      rmSync(directory, { force: true, recursive: true })
     }
   })
 

@@ -30,6 +30,8 @@ Core renderer interactions must cover both confirmed success and failure behavio
 - Keep renderer/main contracts and IPC channel names in `src/shared/contracts.ts`; expose only the typed `window.memoryMusic` API from preload.
 - Treat every IPC payload as untrusted. Validate and normalize it in the main-process service before starting Repository writes, and return the stable `ApiResult` envelope instead of leaking SQLite errors.
 - Add schema changes as ordered migrations and include an upgrade test that proves existing personal records survive.
+- Search tables are derived data. Rebuilding FTS/search documents must never update source tracks, tags, notes, memories, aliases, or their relationships.
+- Keep search normalization and ranking deterministic. New transliteration, fuzzy, or semantic expansion requires a documented need, field-level explanations, and regression cases in the forgetful-query baseline.
 - Personal tags, notes, memories, and aliases must not be deleted when a provider track becomes unavailable or its mapping is removed.
 - Cloud work may implement and test platform-neutral logic. NetEase desktop integration, `orpheus://`, SMTC, Credential Manager, and Windows installers require local Windows verification.
 - Do not add NetEase private APIs, credential handling, or playback integration before its planned milestone.

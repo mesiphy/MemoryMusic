@@ -8,6 +8,7 @@ import type {
   TrackFormInput
 } from '@shared/contracts'
 import MemoryPanel from './components/MemoryPanel.vue'
+import SearchPanel from './components/SearchPanel.vue'
 import TagManager from './components/TagManager.vue'
 import TrackCreateForm from './components/TrackCreateForm.vue'
 import TrackDetail from './components/TrackDetail.vue'
@@ -109,6 +110,8 @@ async function afterTrackDeleted(): Promise<void> {
         <span v-else>本地资料库</span>
       </div>
     </header>
+
+    <SearchPanel :api="api" @select="loadTrack" />
 
     <div v-if="loadError" class="load-error" role="alert">
       <span>{{ loadError }}</span>

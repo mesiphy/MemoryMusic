@@ -81,6 +81,40 @@ export interface LibrarySnapshotDto {
   memories: MemoryDto[]
 }
 
+export type SearchField =
+  'title' | 'artist' | 'album' | 'alias' | 'lyric' | 'cue' | 'tag' | 'note' | 'memory'
+
+export type SearchMode = 'fts' | 'substring'
+
+export interface SearchMatchDto {
+  field: SearchField
+  label: string
+  value: string
+}
+
+export interface SearchResultDto {
+  track: TrackSummaryDto
+  matches: SearchMatchDto[]
+  matchedPersonalField: boolean
+  exactTitle: boolean
+}
+
+export interface SearchResponseDto {
+  query: string
+  normalizedQuery: string
+  mode: SearchMode
+  results: SearchResultDto[]
+  noResultLogId: number | null
+}
+
+export interface SearchIndexStatsDto {
+  documentCount: number
+  rebuiltAt: string
+}
+
+export type SearchMissingField =
+  'title' | 'artist' | 'album' | 'alias' | 'lyric' | 'tag' | 'note' | 'memory' | 'other'
+
 export interface TrackFormInput {
   title: string
   artist: string
@@ -162,6 +196,15 @@ export interface CueIdInput {
   cueId: number
 }
 
+export interface SearchInput {
+  query: string
+}
+
+export interface RecordSearchFeedbackInput {
+  queryLogId: number
+  missingField: SearchMissingField
+}
+
 export interface LibraryApi {
   getLibrary(): Promise<ApiResult<LibrarySnapshotDto>>
   getTrack(input: TrackIdInput): Promise<ApiResult<TrackDetailDto>>
@@ -182,6 +225,9 @@ export interface LibraryApi {
   createCue(input: CreateCueInput): Promise<ApiResult<CueDto>>
   updateCue(input: UpdateCueInput): Promise<ApiResult<CueDto>>
   deleteCue(input: CueIdInput): Promise<ApiResult<null>>
+  search(input: SearchInput): Promise<ApiResult<SearchResponseDto>>
+  recordSearchFeedback(input: RecordSearchFeedbackInput): Promise<ApiResult<null>>
+  rebuildSearchIndex(): Promise<ApiResult<SearchIndexStatsDto>>
 }
 
 export interface MemoryMusicApi {
@@ -208,5 +254,8 @@ export const LIBRARY_IPC_CHANNELS = {
   deleteMemory: 'library:memory:delete',
   createCue: 'library:cue:create',
   updateCue: 'library:cue:update',
-  deleteCue: 'library:cue:delete'
+  deleteCue: 'library:cue:delete',
+  search: 'library:search',
+  recordSearchFeedback: 'library:search:feedback',
+  rebuildSearchIndex: 'library:search:rebuild'
 } as const

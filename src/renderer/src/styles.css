@@ -158,6 +158,209 @@ select option {
   box-shadow: 0 0 13px rgb(140 194 140 / 70%);
 }
 
+.search-panel {
+  margin-bottom: 18px;
+  padding: 20px;
+  background: linear-gradient(120deg, rgb(212 154 98 / 8%), transparent 48%), var(--panel);
+}
+
+.search-heading,
+.search-summary,
+.search-empty {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.search-heading {
+  margin-bottom: 14px;
+}
+
+.search-heading h2 {
+  margin: 4px 0 0;
+  font-family: Georgia, 'Noto Serif SC', serif;
+  font-size: clamp(18px, 2vw, 24px);
+  font-weight: 500;
+}
+
+.search-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.search-input-wrap {
+  position: relative;
+}
+
+.search-input-wrap input {
+  min-height: 46px;
+  padding-left: 43px;
+  background: rgb(0 0 0 / 24%);
+  border-color: rgb(212 154 98 / 24%);
+  font-size: 13px;
+}
+
+.search-icon {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 16px;
+  color: var(--accent);
+  font-family: Georgia, serif;
+  font-size: 25px;
+  transform: translateY(-54%);
+  pointer-events: none;
+}
+
+.search-button {
+  min-height: 46px;
+  padding: 0 24px;
+}
+
+.search-panel > .form-error,
+.search-panel > .success-copy {
+  margin-top: 12px;
+}
+
+.success-copy {
+  margin: 0;
+  color: var(--green);
+  font-size: 11px;
+}
+
+.search-results,
+.search-empty {
+  margin-top: 17px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.search-summary {
+  margin-bottom: 11px;
+}
+
+.search-summary strong {
+  font-size: 12px;
+}
+
+.search-summary span {
+  color: var(--faint);
+  font-size: 10px;
+}
+
+.search-result-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 10px;
+}
+
+.search-result-card {
+  position: relative;
+  display: grid;
+  gap: 11px;
+  min-width: 0;
+  padding: 14px;
+  color: var(--text);
+  text-align: left;
+  background: rgb(255 255 255 / 4%);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.search-result-card:hover {
+  background: rgb(255 255 255 / 7%);
+  border-color: rgb(212 154 98 / 40%);
+  transform: translateY(-1px);
+}
+
+.result-track-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.result-track-copy strong {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-track-copy > span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.match-reasons {
+  display: grid;
+  gap: 6px;
+}
+
+.match-reasons > span {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 7px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.match-reasons small {
+  padding: 2px 5px;
+  color: var(--accent-strong);
+  background: rgb(212 154 98 / 9%);
+  border-radius: 5px;
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.match-reasons span span {
+  overflow: hidden;
+  color: #d1c6ba;
+  font-size: 10px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.personal-match-badge {
+  justify-self: start;
+  color: var(--green);
+  font-size: 9px;
+}
+
+.search-empty > div:first-child {
+  min-width: 0;
+}
+
+.search-empty strong {
+  font-size: 13px;
+}
+
+.search-empty p {
+  max-width: 700px;
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.feedback-controls {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.feedback-controls select {
+  min-width: 150px;
+}
+
 .library-grid {
   display: grid;
   grid-template-columns: minmax(260px, 0.78fr) minmax(390px, 1.45fr) minmax(300px, 0.95fr);
@@ -822,6 +1025,20 @@ label {
     flex-direction: column;
   }
 
+  .search-form {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .search-form > .text-button {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .search-empty {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .library-grid,
   .events-panel {
     grid-template-columns: 1fr;
@@ -840,6 +1057,28 @@ label {
 }
 
 @media (max-width: 540px) {
+  .search-heading,
+  .search-form,
+  .feedback-controls {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+  }
+
+  .search-heading,
+  .feedback-controls {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .search-heading .text-button {
+    align-self: flex-start;
+  }
+
+  .search-button,
+  .feedback-controls select {
+    width: 100%;
+  }
+
   .field-row,
   .cue-composer,
   .cue-row,

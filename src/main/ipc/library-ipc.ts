@@ -30,4 +30,9 @@ export function registerLibraryIpcHandlers(
   ipc.handle(LIBRARY_IPC_CHANNELS.createCue, (_event, input) => service.createCue(input))
   ipc.handle(LIBRARY_IPC_CHANNELS.updateCue, (_event, input) => service.updateCue(input))
   ipc.handle(LIBRARY_IPC_CHANNELS.deleteCue, (_event, input) => service.deleteCue(input))
+  ipc.handle(LIBRARY_IPC_CHANNELS.search, (_event, input) => service.search(input))
+  ipc.handle(LIBRARY_IPC_CHANNELS.recordSearchFeedback, (_event, input) =>
+    service.recordSearchFeedback(input)
+  )
+  ipc.handle(LIBRARY_IPC_CHANNELS.rebuildSearchIndex, () => service.rebuildSearchIndex())
 }

@@ -76,7 +76,41 @@ export interface SyncState {
   updatedAt: string
 }
 
-export const CURRENT_SCHEMA_VERSION = 2
+export interface SearchDocument {
+  trackId: number
+  title: string
+  artist: string
+  album: string
+  aliases: string[]
+  lyrics: string[]
+  cues: string[]
+  tags: string[]
+  notes: string[]
+  memories: string[]
+  normalizedTitle: string
+  normalizedArtist: string
+  normalizedAlbum: string
+  normalizedAliases: string
+  normalizedLyrics: string
+  normalizedCues: string
+  normalizedTags: string
+  normalizedNotes: string
+  normalizedMemories: string
+  normalizedSearchable: string
+  updatedAt: string
+}
+
+export interface SearchQueryLog {
+  id: number
+  query: string
+  normalizedQuery: string
+  resultCount: number
+  mode: string
+  missingField: string | null
+  createdAt: string
+}
+
+export const CURRENT_SCHEMA_VERSION = 3
 
 const migrations: Readonly<Record<number, string>> = {
   1: `
@@ -148,7 +182,54 @@ CREATE TABLE sync_state (
 );`,
   2: `
 ALTER TABLE memories ADD COLUMN location TEXT;
-ALTER TABLE memories ADD COLUMN people TEXT;`
+ALTER TABLE memories ADD COLUMN people TEXT;`,
+  3: `
+CREATE TABLE search_documents (
+  track_id INTEGER PRIMARY KEY REFERENCES tracks(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  artist TEXT NOT NULL,
+  album TEXT NOT NULL,
+  aliases_json TEXT NOT NULL,
+  lyrics_json TEXT NOT NULL,
+  cues_json TEXT NOT NULL,
+  tags_json TEXT NOT NULL,
+  notes_json TEXT NOT NULL,
+  memories_json TEXT NOT NULL,
+  normalized_title TEXT NOT NULL,
+  normalized_artist TEXT NOT NULL,
+  normalized_album TEXT NOT NULL,
+  normalized_aliases TEXT NOT NULL,
+  normalized_lyrics TEXT NOT NULL,
+  normalized_cues TEXT NOT NULL,
+  normalized_tags TEXT NOT NULL,
+  normalized_notes TEXT NOT NULL,
+  normalized_memories TEXT NOT NULL,
+  normalized_searchable TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE VIRTUAL TABLE search_documents_fts USING fts5(
+  title,
+  artist,
+  album,
+  aliases,
+  lyrics,
+  cues,
+  tags,
+  notes,
+  memories,
+  content='',
+  tokenize='trigram'
+);
+CREATE TABLE search_query_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  query TEXT NOT NULL CHECK (length(trim(query)) > 0),
+  normalized_query TEXT NOT NULL CHECK (length(trim(normalized_query)) > 0),
+  result_count INTEGER NOT NULL CHECK (result_count >= 0),
+  mode TEXT NOT NULL CHECK (mode IN ('fts', 'substring')),
+  missing_field TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+CREATE INDEX idx_search_query_log_created_at ON search_query_log(created_at DESC);`
 }
 
 export function openMusicDatabase(path = ':memory:'): SqliteDatabase {
@@ -291,6 +372,61 @@ function syncStateRow(row: DbRow): SyncState {
   }
 }
 
+function stringArray(value: unknown): string[] {
+  if (typeof value !== 'string') return []
+
+  try {
+    const parsed: unknown = JSON.parse(value)
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
+function searchDocumentRow(row: DbRow): SearchDocument {
+  return {
+    trackId: Number(row.track_id),
+    title: String(row.title),
+    artist: String(row.artist),
+    album: String(row.album),
+    aliases: stringArray(row.aliases_json),
+    lyrics: stringArray(row.lyrics_json),
+    cues: stringArray(row.cues_json),
+    tags: stringArray(row.tags_json),
+    notes: stringArray(row.notes_json),
+    memories: stringArray(row.memories_json),
+    normalizedTitle: String(row.normalized_title),
+    normalizedArtist: String(row.normalized_artist),
+    normalizedAlbum: String(row.normalized_album),
+    normalizedAliases: String(row.normalized_aliases),
+    normalizedLyrics: String(row.normalized_lyrics),
+    normalizedCues: String(row.normalized_cues),
+    normalizedTags: String(row.normalized_tags),
+    normalizedNotes: String(row.normalized_notes),
+    normalizedMemories: String(row.normalized_memories),
+    normalizedSearchable: String(row.normalized_searchable),
+    updatedAt: String(row.updated_at)
+  }
+}
+
+function searchQueryLogRow(row: DbRow): SearchQueryLog {
+  return {
+    id: Number(row.id),
+    query: String(row.query),
+    normalizedQuery: String(row.normalized_query),
+    resultCount: Number(row.result_count),
+    mode: String(row.mode),
+    missingField: row.missing_field == null ? null : String(row.missing_field),
+    createdAt: String(row.created_at)
+  }
+}
+
+function escapeLike(value: string): string {
+  return value.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')
+}
+
 export class MusicRepository {
   constructor(private readonly db: SqliteDatabase) {}
 
@@ -315,6 +451,13 @@ export class MusicRepository {
       .prepare('SELECT * FROM tracks ORDER BY updated_at DESC, id DESC')
       .all()
       .map((row) => trackRow(row as DbRow))
+  }
+
+  touchTracks(trackIds: number[]): void {
+    const update = this.db.prepare(
+      "UPDATE tracks SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?"
+    )
+    for (const trackId of new Set(trackIds)) update.run(trackId)
   }
 
   updateTrack(id: number, changes: TrackChanges): Track | undefined {
@@ -482,6 +625,13 @@ export class MusicRepository {
       .map((row) => tagRow(row as DbRow))
   }
 
+  trackIdsForTag(tagId: number): number[] {
+    return this.db
+      .prepare('SELECT track_id FROM track_tags WHERE tag_id = ? ORDER BY track_id')
+      .all(tagId)
+      .map((row) => Number((row as DbRow).track_id))
+  }
+
   addNote(trackId: number, body: string): Note {
     const info = this.db
       .prepare('INSERT INTO notes (track_id, body) VALUES (?, ?)')
@@ -638,6 +788,141 @@ export class MusicRepository {
       .prepare('SELECT * FROM aliases WHERE track_id = ? ORDER BY name')
       .all(trackId)
       .map((row) => aliasRow(row as DbRow))
+  }
+
+  replaceSearchDocuments(documents: SearchDocument[]): void {
+    this.transaction(() => {
+      this.db
+        .prepare("INSERT INTO search_documents_fts(search_documents_fts) VALUES ('delete-all')")
+        .run()
+      this.db.prepare('DELETE FROM search_documents').run()
+
+      const insertDocument = this.db.prepare(`
+        INSERT INTO search_documents (
+          track_id, title, artist, album,
+          aliases_json, lyrics_json, cues_json, tags_json, notes_json, memories_json,
+          normalized_title, normalized_artist, normalized_album,
+          normalized_aliases, normalized_lyrics, normalized_cues,
+          normalized_tags, normalized_notes, normalized_memories,
+          normalized_searchable, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      const insertFts = this.db.prepare(`
+        INSERT INTO search_documents_fts (
+          rowid, title, artist, album, aliases, lyrics, cues, tags, notes, memories
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+
+      for (const document of documents) {
+        insertDocument.run(
+          document.trackId,
+          document.title,
+          document.artist,
+          document.album,
+          JSON.stringify(document.aliases),
+          JSON.stringify(document.lyrics),
+          JSON.stringify(document.cues),
+          JSON.stringify(document.tags),
+          JSON.stringify(document.notes),
+          JSON.stringify(document.memories),
+          document.normalizedTitle,
+          document.normalizedArtist,
+          document.normalizedAlbum,
+          document.normalizedAliases,
+          document.normalizedLyrics,
+          document.normalizedCues,
+          document.normalizedTags,
+          document.normalizedNotes,
+          document.normalizedMemories,
+          document.normalizedSearchable,
+          document.updatedAt
+        )
+        insertFts.run(
+          document.trackId,
+          document.normalizedTitle,
+          document.normalizedArtist,
+          document.normalizedAlbum,
+          document.normalizedAliases,
+          document.normalizedLyrics,
+          document.normalizedCues,
+          document.normalizedTags,
+          document.normalizedNotes,
+          document.normalizedMemories
+        )
+      }
+    })
+  }
+
+  getSearchDocument(trackId: number): SearchDocument | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM search_documents WHERE track_id = ?')
+      .get(trackId) as DbRow | undefined
+    return row ? searchDocumentRow(row) : undefined
+  }
+
+  listSearchDocuments(): SearchDocument[] {
+    return this.db
+      .prepare('SELECT * FROM search_documents ORDER BY track_id')
+      .all()
+      .map((row) => searchDocumentRow(row as DbRow))
+  }
+
+  searchDocumentIdsByFts(matchExpression: string, limit = 200): number[] {
+    return this.db
+      .prepare('SELECT rowid FROM search_documents_fts WHERE search_documents_fts MATCH ? LIMIT ?')
+      .all(matchExpression, limit)
+      .map((row) => Number((row as DbRow).rowid))
+  }
+
+  searchDocumentIdsBySubstring(tokens: string[], limit = 200): number[] {
+    if (!tokens.length) return []
+
+    const where = tokens.map(() => "normalized_searchable LIKE ? ESCAPE '\\'").join(' AND ')
+    const patterns = tokens.map((token) => `%${escapeLike(token)}%`)
+    return this.db
+      .prepare(`SELECT track_id FROM search_documents WHERE ${where} ORDER BY track_id LIMIT ?`)
+      .all(...patterns, limit)
+      .map((row) => Number((row as DbRow).track_id))
+  }
+
+  searchDocumentCount(): number {
+    const row = this.db.prepare('SELECT count(*) AS count FROM search_documents').get() as DbRow
+    return Number(row.count)
+  }
+
+  logSearchQuery(
+    query: string,
+    normalizedQuery: string,
+    resultCount: number,
+    mode: string
+  ): SearchQueryLog {
+    const info = this.db
+      .prepare(
+        'INSERT INTO search_query_log (query, normalized_query, result_count, mode) VALUES (?, ?, ?, ?)'
+      )
+      .run(query, normalizedQuery, resultCount, mode)
+    return this.getSearchQueryLog(Number(info.lastInsertRowid))!
+  }
+
+  getSearchQueryLog(id: number): SearchQueryLog | undefined {
+    const row = this.db.prepare('SELECT * FROM search_query_log WHERE id = ?').get(id) as
+      DbRow | undefined
+    return row ? searchQueryLogRow(row) : undefined
+  }
+
+  listSearchQueryLogs(): SearchQueryLog[] {
+    return this.db
+      .prepare('SELECT * FROM search_query_log ORDER BY id')
+      .all()
+      .map((row) => searchQueryLogRow(row as DbRow))
+  }
+
+  recordSearchMissingField(id: number, missingField: string): boolean {
+    return (
+      this.db
+        .prepare('UPDATE search_query_log SET missing_field = ? WHERE id = ? AND result_count = 0')
+        .run(missingField, id).changes > 0
+    )
   }
 
   getSyncState(provider: string): SyncState | undefined {

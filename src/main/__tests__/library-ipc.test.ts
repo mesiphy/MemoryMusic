@@ -4,6 +4,8 @@ import {
   type ApiResult,
   type LibrarySnapshotDto,
   type MemoryDto,
+  type SearchIndexStatsDto,
+  type SearchResponseDto,
   type TagDto,
   type TrackDetailDto
 } from '../../shared/contracts'
@@ -179,6 +181,67 @@ describe('library IPC service', () => {
     })
     expect(firstDetail.ok && firstDetail.value.notes).toHaveLength(2)
     expect(firstDetail.ok && firstDetail.value.cues).toHaveLength(1)
+  })
+
+  it('searches personal fields through IPC and explains why a track matched', () => {
+    const track = thisTrack(ipc, '公路之歌')
+    const tag = thisTag(ipc, '自驾')
+    ipc.invoke(LIBRARY_IPC_CHANNELS.setTrackTags, { trackId: track.id, tagIds: [tag.id] })
+    ipc.invoke(LIBRARY_IPC_CHANNELS.createNote, {
+      trackId: track.id,
+      body: '过隧道时鼓点突然响起来'
+    })
+    ipc.invoke(LIBRARY_IPC_CHANNELS.createMemory, {
+      title: '青海湖自驾',
+      description: '日落后沿湖开车',
+      happenedAt: '2025-08-16T20:30',
+      location: '青海湖',
+      people: '小林',
+      trackIds: [track.id]
+    })
+
+    const result = ipc.invoke<SearchResponseDto>(LIBRARY_IPC_CHANNELS.search, {
+      query: '青海湖'
+    })
+    expect(result).toMatchObject({
+      ok: true,
+      value: {
+        mode: 'fts',
+        results: [
+          {
+            track: { id: track.id, title: '公路之歌' },
+            matchedPersonalField: true,
+            matches: [expect.objectContaining({ field: 'memory' })]
+          }
+        ]
+      }
+    })
+
+    const rebuilt = ipc.invoke<SearchIndexStatsDto>(LIBRARY_IPC_CHANNELS.rebuildSearchIndex)
+    expect(rebuilt).toMatchObject({ ok: true, value: { documentCount: 1 } })
+  })
+
+  it('validates search input and records missing-field feedback for no results', () => {
+    expect(
+      ipc.invoke<SearchResponseDto>(LIBRARY_IPC_CHANNELS.search, { query: '　' })
+    ).toMatchObject({ ok: false, error: { code: 'VALIDATION' } })
+
+    const missing = ipc.invoke<SearchResponseDto>(LIBRARY_IPC_CHANNELS.search, {
+      query: '记得旋律但没有记录'
+    })
+    if (!missing.ok || !missing.value.noResultLogId) {
+      throw new Error('Expected a no-result search log')
+    }
+
+    expect(
+      ipc.invoke(LIBRARY_IPC_CHANNELS.recordSearchFeedback, {
+        queryLogId: missing.value.noResultLogId,
+        missingField: 'note'
+      })
+    ).toEqual({ ok: true, value: null })
+    expect(
+      database.prepare('SELECT result_count, missing_field FROM search_query_log').get()
+    ).toEqual({ result_count: 0, missing_field: 'note' })
   })
 })
 
