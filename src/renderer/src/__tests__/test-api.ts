@@ -1,5 +1,5 @@
 import { vi } from 'vitest'
-import type { LibraryApi } from '@shared/contracts'
+import type { LibraryApi, PlaybackApi } from '@shared/contracts'
 
 export function testLibraryApi(overrides: Partial<LibraryApi> = {}): LibraryApi {
   const successNull = vi.fn(async () => ({ ok: true as const, value: null }))
@@ -29,4 +29,23 @@ export function testLibraryApi(overrides: Partial<LibraryApi> = {}): LibraryApi 
     rebuildSearchIndex: vi.fn(),
     ...overrides
   } as LibraryApi
+}
+
+export function testPlaybackApi(overrides: Partial<PlaybackApi> = {}): PlaybackApi {
+  const noSession = vi.fn(async () => ({ ok: true as const, value: null }))
+  const rejectedControl = vi.fn(async () => ({
+    ok: true as const,
+    value: { accepted: false, nowPlaying: null }
+  }))
+
+  return {
+    play: vi.fn(),
+    openWeb: vi.fn(),
+    getNowPlaying: noSession,
+    pause: rejectedControl,
+    resume: rejectedControl,
+    next: rejectedControl,
+    previous: rejectedControl,
+    ...overrides
+  } as PlaybackApi
 }
