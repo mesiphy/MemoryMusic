@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import {
+  CAPTURE_IPC_CHANNELS,
+  IMPORT_IPC_CHANNELS,
   LIBRARY_IPC_CHANNELS,
   PLAYBACK_IPC_CHANNELS,
   type ApiResult,
@@ -45,6 +47,16 @@ const api: MemoryMusicApi = {
     resume: () => invoke(PLAYBACK_IPC_CHANNELS.resume),
     next: () => invoke(PLAYBACK_IPC_CHANNELS.next),
     previous: () => invoke(PLAYBACK_IPC_CHANNELS.previous)
+  },
+  importer: {
+    getStatus: () => invoke(IMPORT_IPC_CHANNELS.getStatus),
+    syncFavorites: () => invoke(IMPORT_IPC_CHANNELS.syncFavorites)
+  },
+  capture: {
+    getContext: () => invoke(CAPTURE_IPC_CHANNELS.getContext),
+    capture: (input) => invoke(CAPTURE_IPC_CHANNELS.capture, input),
+    listInbox: () => invoke(CAPTURE_IPC_CHANNELS.listInbox),
+    resolveInbox: (input) => invoke(CAPTURE_IPC_CHANNELS.resolveInbox, input)
   }
 }
 

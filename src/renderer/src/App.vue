@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import type {
   ApiResult,
   LibrarySnapshotDto,
@@ -8,7 +8,10 @@ import type {
   TrackFormInput
 } from '@shared/contracts'
 import MemoryPanel from './components/MemoryPanel.vue'
+import ImportPanel from './components/ImportPanel.vue'
+import InboxPanel from './components/InboxPanel.vue'
 import NowPlayingPanel from './components/NowPlayingPanel.vue'
+import QuickCapturePanel from './components/QuickCapturePanel.vue'
 import SearchPanel from './components/SearchPanel.vue'
 import TagManager from './components/TagManager.vue'
 import TrackCreateForm from './components/TrackCreateForm.vue'
@@ -17,6 +20,9 @@ import TrackList from './components/TrackList.vue'
 
 const api = window.memoryMusic.library
 const playbackApi = window.memoryMusic.playback
+const importApi = window.memoryMusic.importer
+const captureApi = window.memoryMusic.capture
+const isQuickCapture = new URLSearchParams(window.location.search).get('quickCapture') === '1'
 const snapshot = ref<LibrarySnapshotDto>({ tracks: [], tags: [], memories: [] })
 const selectedTrackId = ref<number | null>(null)
 const selectedTrack = ref<TrackDetailDto | null>(null)
@@ -26,12 +32,19 @@ const detailLoading = ref(false)
 const loadError = ref('')
 
 onMounted(async () => {
+  if (isQuickCapture) {
+    loading.value = false
+    return
+  }
   void window.memoryMusic
     .getRuntimeInfo()
     .then((value) => (runtime.value = value))
     .catch(() => undefined)
   await loadLibrary()
+  window.addEventListener('focus', refreshAfterWindowFocus)
 })
+
+onBeforeUnmount(() => window.removeEventListener('focus', refreshAfterWindowFocus))
 
 async function loadLibrary(preferredTrackId: number | null = selectedTrackId.value): Promise<void> {
   loading.value = true
@@ -95,10 +108,19 @@ async function afterTrackDeleted(): Promise<void> {
   selectedTrack.value = null
   await loadLibrary(null)
 }
+
+function closeQuickCaptureAfterSave(): void {
+  window.setTimeout(() => window.close(), 450)
+}
+
+function refreshAfterWindowFocus(): void {
+  void loadLibrary(selectedTrackId.value)
+}
 </script>
 
 <template>
-  <div class="app-shell">
+  <QuickCapturePanel v-if="isQuickCapture" :api="captureApi" @saved="closeQuickCaptureAfterSave" />
+  <div v-else class="app-shell">
     <header class="app-header">
       <div>
         <p class="eyebrow">MEMORY MUSIC · LOCAL FIRST</p>
@@ -125,6 +147,7 @@ async function afterTrackDeleted(): Promise<void> {
     <div class="library-grid">
       <aside class="sidebar-column">
         <TrackCreateForm :save="saveTrack" />
+        <ImportPanel :api="importApi" @imported="refreshSelected" />
         <TrackList :tracks="snapshot.tracks" :selected-id="selectedTrackId" @select="loadTrack" />
         <TagManager :api="api" :tags="snapshot.tags" @refresh="refreshSelected" />
       </aside>
@@ -151,6 +174,7 @@ async function afterTrackDeleted(): Promise<void> {
       </main>
 
       <aside class="events-column">
+        <InboxPanel :api="captureApi" @select="loadTrack" />
         <MemoryPanel
           :api="api"
           :memories="snapshot.memories"

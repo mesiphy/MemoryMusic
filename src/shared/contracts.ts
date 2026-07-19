@@ -8,7 +8,7 @@ export interface RuntimeInfo {
 }
 
 export type ApiErrorCode =
-  'VALIDATION' | 'NOT_FOUND' | 'CONFLICT' | 'STORAGE' | 'PLAYBACK' | 'UNSUPPORTED'
+  'VALIDATION' | 'NOT_FOUND' | 'CONFLICT' | 'STORAGE' | 'PLAYBACK' | 'SYNC' | 'UNSUPPORTED'
 
 export interface ApiError {
   code: ApiErrorCode
@@ -136,6 +136,64 @@ export interface NowPlayingDto {
 export interface PlaybackControlResultDto {
   accepted: boolean
   nowPlaying: NowPlayingDto | null
+}
+
+export type SyncStatusDto = 'idle' | 'running' | 'succeeded' | 'failed'
+
+export interface NeteaseSyncStateDto {
+  status: SyncStatusDto
+  hasCursor: boolean
+  lastAttemptAt: string | null
+  lastSuccessAt: string | null
+  failureReason: string | null
+  retryCount: number
+}
+
+export interface NeteaseImportStatusDto {
+  available: boolean
+  unavailableReason: string | null
+  sync: NeteaseSyncStateDto
+}
+
+export interface NeteaseImportResultDto {
+  importedCount: number
+  reusedTrackCount: number
+  updatedMappingCount: number
+  unavailableCount: number
+  processedCount: number
+  pageCount: number
+  sync: NeteaseSyncStateDto
+}
+
+export type QuickCaptureKind = 'tag' | 'note' | 'inbox'
+
+export interface QuickCaptureInput {
+  kind: QuickCaptureKind
+  text: string
+}
+
+export interface QuickCaptureResultDto {
+  trackId: number
+  title: string
+  artist: string | null
+  createdTrack: boolean
+  kind: QuickCaptureKind
+  captureText: string | null
+  inboxItemId: number | null
+}
+
+export interface QuickCaptureInboxItemDto {
+  id: number
+  trackId: number
+  title: string
+  artist: string | null
+  captureText: string | null
+  sourceAppId: string
+  capturedAt: string
+}
+
+export interface ResolveQuickCaptureInboxInput {
+  inboxItemId: number
 }
 
 export type SearchMissingField =
@@ -266,10 +324,24 @@ export interface PlaybackApi {
   previous(): Promise<ApiResult<PlaybackControlResultDto>>
 }
 
+export interface ImportApi {
+  getStatus(): Promise<ApiResult<NeteaseImportStatusDto>>
+  syncFavorites(): Promise<ApiResult<NeteaseImportResultDto>>
+}
+
+export interface CaptureApi {
+  getContext(): Promise<ApiResult<NowPlayingDto | null>>
+  capture(input: QuickCaptureInput): Promise<ApiResult<QuickCaptureResultDto>>
+  listInbox(): Promise<ApiResult<QuickCaptureInboxItemDto[]>>
+  resolveInbox(input: ResolveQuickCaptureInboxInput): Promise<ApiResult<null>>
+}
+
 export interface MemoryMusicApi {
   getRuntimeInfo(): Promise<RuntimeInfo>
   library: LibraryApi
   playback: PlaybackApi
+  importer: ImportApi
+  capture: CaptureApi
 }
 
 export const LIBRARY_IPC_CHANNELS = {
@@ -305,4 +377,16 @@ export const PLAYBACK_IPC_CHANNELS = {
   resume: 'playback:resume',
   next: 'playback:next',
   previous: 'playback:previous'
+} as const
+
+export const IMPORT_IPC_CHANNELS = {
+  getStatus: 'import:netease:status',
+  syncFavorites: 'import:netease:sync-favorites'
+} as const
+
+export const CAPTURE_IPC_CHANNELS = {
+  getContext: 'capture:context',
+  capture: 'capture:save',
+  listInbox: 'capture:inbox:list',
+  resolveInbox: 'capture:inbox:resolve'
 } as const

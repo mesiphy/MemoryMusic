@@ -1,5 +1,5 @@
 import { vi } from 'vitest'
-import type { LibraryApi, PlaybackApi } from '@shared/contracts'
+import type { CaptureApi, ImportApi, LibraryApi, PlaybackApi } from '@shared/contracts'
 
 export function testLibraryApi(overrides: Partial<LibraryApi> = {}): LibraryApi {
   const successNull = vi.fn(async () => ({ ok: true as const, value: null }))
@@ -48,4 +48,36 @@ export function testPlaybackApi(overrides: Partial<PlaybackApi> = {}): PlaybackA
     previous: rejectedControl,
     ...overrides
   } as PlaybackApi
+}
+
+export function testCaptureApi(overrides: Partial<CaptureApi> = {}): CaptureApi {
+  return {
+    getContext: vi.fn(async () => ({ ok: true as const, value: null })),
+    capture: vi.fn(),
+    listInbox: vi.fn(async () => ({ ok: true as const, value: [] })),
+    resolveInbox: vi.fn(async () => ({ ok: true as const, value: null })),
+    ...overrides
+  } as CaptureApi
+}
+
+export function testImportApi(overrides: Partial<ImportApi> = {}): ImportApi {
+  return {
+    getStatus: vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        available: false,
+        unavailableReason: '测试环境未配置',
+        sync: {
+          status: 'idle' as const,
+          hasCursor: false,
+          lastAttemptAt: null,
+          lastSuccessAt: null,
+          failureReason: null,
+          retryCount: 0
+        }
+      }
+    })),
+    syncFavorites: vi.fn(),
+    ...overrides
+  } as ImportApi
 }
