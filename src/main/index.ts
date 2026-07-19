@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
 import type { RuntimeInfo } from '../shared/contracts'
-import { UnavailableNeteaseDataAdapter } from './import/netease-data-adapter'
+import { NcmCliNeteaseDataAdapter } from './import/ncm-cli-netease-data-adapter'
 import { registerCaptureIpcHandlers } from './ipc/capture-ipc'
 import { registerImportIpcHandlers } from './ipc/import-ipc'
 import { registerLibraryIpcHandlers } from './ipc/library-ipc'
@@ -137,12 +137,7 @@ void app
     registerLibraryIpcHandlers(ipcMain, new LibraryService(repository))
     registerImportIpcHandlers(
       ipcMain,
-      new NeteaseImportService(
-        repository,
-        new UnavailableNeteaseDataAdapter(
-          '真实账号导入尚未启用：需先用有效开放平台凭据完成官方 ncm-cli 扫码授权和字段核验'
-        )
-      )
+      new NeteaseImportService(repository, new NcmCliNeteaseDataAdapter())
     )
     registerPlaybackIpcHandlers(
       ipcMain,
