@@ -2,7 +2,7 @@
 
 ## Setup
 
-- Use Node.js 22.12 or newer and pnpm 10 or newer.
+- Use Node.js 22.13 or newer and pnpm 10 or newer.
 - Install the committed dependency graph with `pnpm install --frozen-lockfile`.
 - When dependencies intentionally change, run `pnpm install` once and commit the updated lockfile.
 - Native build scripts are allowlisted in `pnpm-workspace.yaml`. Keep the list limited to packages present in the dependency graph.
