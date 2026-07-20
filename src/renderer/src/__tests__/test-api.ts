@@ -1,5 +1,11 @@
 import { vi } from 'vitest'
-import type { CaptureApi, ImportApi, LibraryApi, PlaybackApi } from '@shared/contracts'
+import type {
+  CaptureApi,
+  DataSafetyApi,
+  ImportApi,
+  LibraryApi,
+  PlaybackApi
+} from '@shared/contracts'
 
 export function testLibraryApi(overrides: Partial<LibraryApi> = {}): LibraryApi {
   const successNull = vi.fn(async () => ({ ok: true as const, value: null }))
@@ -80,4 +86,23 @@ export function testImportApi(overrides: Partial<ImportApi> = {}): ImportApi {
     syncFavorites: vi.fn(),
     ...overrides
   } as ImportApi
+}
+
+export function testDataSafetyApi(overrides: Partial<DataSafetyApi> = {}): DataSafetyApi {
+  return {
+    getStatus: vi.fn(async () => ({
+      ok: true as const,
+      value: {
+        schemaVersion: 4,
+        exportFormatVersion: 1,
+        automaticBackupCount: 1,
+        lastAutomaticBackupAt: '2026-07-19T08:00:00.000Z',
+        restorePending: false
+      }
+    })),
+    createBackup: vi.fn(),
+    exportJson: vi.fn(),
+    restoreBackup: vi.fn(),
+    ...overrides
+  } as DataSafetyApi
 }

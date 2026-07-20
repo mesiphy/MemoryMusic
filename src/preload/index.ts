@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import {
   CAPTURE_IPC_CHANNELS,
+  DATA_SAFETY_IPC_CHANNELS,
   IMPORT_IPC_CHANNELS,
   LIBRARY_IPC_CHANNELS,
   PLAYBACK_IPC_CHANNELS,
@@ -57,6 +58,12 @@ const api: MemoryMusicApi = {
     capture: (input) => invoke(CAPTURE_IPC_CHANNELS.capture, input),
     listInbox: () => invoke(CAPTURE_IPC_CHANNELS.listInbox),
     resolveInbox: (input) => invoke(CAPTURE_IPC_CHANNELS.resolveInbox, input)
+  },
+  dataSafety: {
+    getStatus: () => invoke(DATA_SAFETY_IPC_CHANNELS.getStatus),
+    createBackup: () => invoke(DATA_SAFETY_IPC_CHANNELS.createBackup),
+    exportJson: () => invoke(DATA_SAFETY_IPC_CHANNELS.exportJson),
+    restoreBackup: () => invoke(DATA_SAFETY_IPC_CHANNELS.restoreBackup)
   }
 }
 

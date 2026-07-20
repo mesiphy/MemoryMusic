@@ -192,6 +192,26 @@ export interface QuickCaptureInboxItemDto {
   capturedAt: string
 }
 
+export interface DataSafetyStatusDto {
+  schemaVersion: number
+  exportFormatVersion: number
+  automaticBackupCount: number
+  lastAutomaticBackupAt: string | null
+  restorePending: boolean
+}
+
+export type DataSafetyOperationStatus = 'completed' | 'cancelled'
+
+export interface DataSafetyFileResultDto {
+  status: DataSafetyOperationStatus
+  fileName: string | null
+  completedAt: string | null
+}
+
+export interface DataSafetyRestoreResultDto extends DataSafetyFileResultDto {
+  restartRequired: boolean
+}
+
 export interface ResolveQuickCaptureInboxInput {
   inboxItemId: number
 }
@@ -336,12 +356,20 @@ export interface CaptureApi {
   resolveInbox(input: ResolveQuickCaptureInboxInput): Promise<ApiResult<null>>
 }
 
+export interface DataSafetyApi {
+  getStatus(): Promise<ApiResult<DataSafetyStatusDto>>
+  createBackup(): Promise<ApiResult<DataSafetyFileResultDto>>
+  exportJson(): Promise<ApiResult<DataSafetyFileResultDto>>
+  restoreBackup(): Promise<ApiResult<DataSafetyRestoreResultDto>>
+}
+
 export interface MemoryMusicApi {
   getRuntimeInfo(): Promise<RuntimeInfo>
   library: LibraryApi
   playback: PlaybackApi
   importer: ImportApi
   capture: CaptureApi
+  dataSafety: DataSafetyApi
 }
 
 export const LIBRARY_IPC_CHANNELS = {
@@ -389,4 +417,11 @@ export const CAPTURE_IPC_CHANNELS = {
   capture: 'capture:save',
   listInbox: 'capture:inbox:list',
   resolveInbox: 'capture:inbox:resolve'
+} as const
+
+export const DATA_SAFETY_IPC_CHANNELS = {
+  getStatus: 'data-safety:status',
+  createBackup: 'data-safety:backup:create',
+  exportJson: 'data-safety:export:json',
+  restoreBackup: 'data-safety:backup:restore'
 } as const
