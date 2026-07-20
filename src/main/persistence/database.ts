@@ -523,6 +523,48 @@ export class MusicRepository {
       .map((row) => trackRow(row as DbRow))
   }
 
+  personalCueCounts(): Map<number, number> {
+    const rows = this.db
+      .prepare(
+        `SELECT track_id, COUNT(*) AS personal_cue_count
+         FROM (
+           SELECT track_id FROM track_tags
+           UNION ALL
+           SELECT track_id FROM notes
+           UNION ALL
+           SELECT track_id FROM aliases
+           UNION ALL
+           SELECT track_id FROM memory_tracks
+         )
+         GROUP BY track_id`
+      )
+      .all() as DbRow[]
+
+    return new Map(
+      rows.map((row) => [Number(row.track_id), Number(row.personal_cue_count)] as const)
+    )
+  }
+
+  personalCueCountForTrack(trackId: number): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS personal_cue_count
+         FROM (
+           SELECT track_id FROM track_tags
+           UNION ALL
+           SELECT track_id FROM notes
+           UNION ALL
+           SELECT track_id FROM aliases
+           UNION ALL
+           SELECT track_id FROM memory_tracks
+         )
+         WHERE track_id = ?`
+      )
+      .get(trackId) as DbRow
+
+    return Number(row.personal_cue_count)
+  }
+
   findTrackByTitleArtist(title: string, artist: string | null): Track | undefined {
     const row = this.db
       .prepare(

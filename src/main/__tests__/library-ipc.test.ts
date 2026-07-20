@@ -73,6 +73,7 @@ describe('library IPC service', () => {
       ok: true,
       value: {
         title: '夜曲',
+        personalCueCount: 0,
         providerTracks: [{ provider: 'netease', providerTrackId: '185924' }]
       }
     })
@@ -131,6 +132,7 @@ describe('library IPC service', () => {
         trackId: track.id
       })
       expect(detail.ok && detail.value.tags).toEqual([expect.objectContaining({ id: night.id })])
+      expect(detail.ok && detail.value.personalCueCount).toBe(1)
     }
   })
 
@@ -181,6 +183,19 @@ describe('library IPC service', () => {
     })
     expect(firstDetail.ok && firstDetail.value.notes).toHaveLength(2)
     expect(firstDetail.ok && firstDetail.value.cues).toHaveLength(1)
+    expect(firstDetail.ok && firstDetail.value.personalCueCount).toBe(4)
+
+    const snapshot = ipc.invoke<LibrarySnapshotDto>(LIBRARY_IPC_CHANNELS.getLibrary)
+    if (!snapshot.ok) throw new Error('Expected library snapshot to succeed')
+    expect(
+      snapshot.value.tracks.map((track) => ({
+        title: track.title,
+        personalCueCount: track.personalCueCount
+      }))
+    ).toEqual([
+      { title: '旅行的意义', personalCueCount: 1 },
+      { title: '公路之歌', personalCueCount: 4 }
+    ])
   })
 
   it('searches personal fields through IPC and explains why a track matched', () => {

@@ -7,6 +7,7 @@ import type {
   TrackDetailDto,
   TrackFormInput
 } from '@shared/contracts'
+import ClueBootstrapPanel from './components/ClueBootstrapPanel.vue'
 import DataSafetyPanel from './components/DataSafetyPanel.vue'
 import MemoryPanel from './components/MemoryPanel.vue'
 import ImportPanel from './components/ImportPanel.vue'
@@ -105,6 +106,16 @@ async function refreshSelected(): Promise<void> {
   await loadLibrary(selectedTrackId.value)
 }
 
+async function afterBootstrapCueSaved(savedTrackId: number): Promise<void> {
+  await loadLibrary(savedTrackId)
+  const savedIndex = snapshot.value.tracks.findIndex((track) => track.id === savedTrackId)
+  const laterTracks = snapshot.value.tracks.slice(savedIndex + 1)
+  const next =
+    laterTracks.find((track) => track.personalCueCount === 0) ??
+    snapshot.value.tracks.find((track) => track.personalCueCount === 0)
+  if (next) await loadTrack(next.id)
+}
+
 async function afterTrackDeleted(): Promise<void> {
   selectedTrackId.value = null
   selectedTrack.value = null
@@ -150,6 +161,13 @@ function refreshAfterWindowFocus(): void {
       <aside class="sidebar-column">
         <TrackCreateForm :save="saveTrack" />
         <ImportPanel :api="importApi" @imported="refreshSelected" />
+        <ClueBootstrapPanel
+          :api="api"
+          :tracks="snapshot.tracks"
+          :selected-id="selectedTrackId"
+          @select="loadTrack"
+          @saved="afterBootstrapCueSaved"
+        />
         <DataSafetyPanel :api="dataSafetyApi" />
         <TrackList :tracks="snapshot.tracks" :selected-id="selectedTrackId" @select="loadTrack" />
         <TagManager :api="api" :tags="snapshot.tags" @refresh="refreshSelected" />

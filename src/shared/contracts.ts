@@ -66,6 +66,7 @@ export interface TrackSummaryDto {
   album: string | null
   updatedAt: string
   tags: TagDto[]
+  personalCueCount: number
 }
 
 export interface TrackDetailDto extends TrackSummaryDto {
