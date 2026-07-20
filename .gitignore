@@ -19,6 +19,7 @@ Desktop.ini
 *.log
 *.tmp
 *.temp
+.local/
 
 # Node.js and Electron build output
 node_modules/
