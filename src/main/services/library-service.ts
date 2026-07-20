@@ -219,11 +219,16 @@ export class LibraryService {
   }
 
   getLibrary(): ApiResult<LibrarySnapshotDto> {
-    return this.execute('读取资料库失败，请重试', () => ({
-      tracks: this.repository.listTracks().map((track) => this.trackSummaryDto(track)),
-      tags: this.repository.listTags().map(tagDto),
-      memories: this.repository.listMemories().map((memory) => this.memoryDto(memory))
-    }))
+    return this.execute('读取资料库失败，请重试', () => {
+      const personalCueCounts = this.repository.personalCueCounts()
+      return {
+        tracks: this.repository
+          .listTracks()
+          .map((track) => this.trackSummaryDto(track, personalCueCounts.get(track.id) ?? 0)),
+        tags: this.repository.listTags().map(tagDto),
+        memories: this.repository.listMemories().map((memory) => this.memoryDto(memory))
+      }
+    })
   }
 
   getTrack(input: unknown): ApiResult<TrackDetailDto> {
@@ -581,14 +586,18 @@ export class LibraryService {
     })
   }
 
-  private trackSummaryDto(track: Track): TrackSummaryDto {
+  private trackSummaryDto(
+    track: Track,
+    personalCueCount = this.repository.personalCueCountForTrack(track.id)
+  ): TrackSummaryDto {
     return {
       id: track.id,
       title: track.title,
       artist: track.artist,
       album: track.album,
       updatedAt: track.updatedAt,
-      tags: this.repository.tagsForTrack(track.id).map(tagDto)
+      tags: this.repository.tagsForTrack(track.id).map(tagDto),
+      personalCueCount
     }
   }
 

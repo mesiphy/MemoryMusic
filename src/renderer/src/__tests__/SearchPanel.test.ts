@@ -23,7 +23,8 @@ describe('SearchPanel', () => {
               artist: '痛仰',
               album: '不要停止我的音乐',
               updatedAt: '2026-07-15T10:00:00.000Z',
-              tags: []
+              tags: [],
+              personalCueCount: 1
             },
             matches: [{ field: 'memory' as const, label: '事件', value: '青海湖自驾 · 日落' }],
             matchedPersonalField: true,
@@ -187,7 +188,8 @@ function searchWithOneResult(): LibraryApi['search'] {
               artist: 'Beyond',
               album: '乐与怒',
               updatedAt: '2026-07-15T10:00:00.000Z',
-              tags: []
+              tags: [],
+              personalCueCount: 0
             },
             matches: [{ field: 'title' as const, label: '歌名', value: '海阔天空' }],
             matchedPersonalField: false,

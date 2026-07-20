@@ -14,6 +14,7 @@ const track: TrackDetailDto = {
   durationMs: null,
   updatedAt: '2026-07-15T00:00:00.000Z',
   tags: [{ id: 1, name: '夜晚', color: '#d39b66' }],
+  personalCueCount: 1,
   providerTracks: [],
   notes: [],
   memories: [],

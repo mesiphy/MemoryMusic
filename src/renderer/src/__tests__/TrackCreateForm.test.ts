@@ -34,6 +34,7 @@ describe('TrackCreateForm', () => {
         durationMs: null,
         updatedAt: '2026-07-15T00:00:00.000Z',
         tags: [],
+        personalCueCount: 0,
         providerTracks: [],
         notes: [],
         memories: [],

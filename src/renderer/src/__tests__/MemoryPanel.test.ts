@@ -26,8 +26,24 @@ describe('MemoryPanel', () => {
         api: testLibraryApi({ createMemory }),
         memories: [],
         tracks: [
-          { id: 1, title: '公路之歌', artist: null, album: null, updatedAt: '', tags: [] },
-          { id: 2, title: '旅行的意义', artist: null, album: null, updatedAt: '', tags: [] }
+          {
+            id: 1,
+            title: '公路之歌',
+            artist: null,
+            album: null,
+            updatedAt: '',
+            tags: [],
+            personalCueCount: 0
+          },
+          {
+            id: 2,
+            title: '旅行的意义',
+            artist: null,
+            album: null,
+            updatedAt: '',
+            tags: [],
+            personalCueCount: 0
+          }
         ]
       }
     })
