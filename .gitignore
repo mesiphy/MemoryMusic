@@ -25,6 +25,7 @@ node_modules/
 out/
 dist/
 release/
+release-*/
 *.tsbuildinfo
 .eslintcache
 

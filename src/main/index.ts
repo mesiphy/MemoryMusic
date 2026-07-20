@@ -1,14 +1,27 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, shell } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  globalShortcut,
+  ipcMain,
+  shell,
+  type MessageBoxOptions,
+  type OpenDialogOptions,
+  type SaveDialogOptions
+} from 'electron'
 import { join } from 'node:path'
 import type { RuntimeInfo } from '../shared/contracts'
+import { applyPendingRestore, createStartupBackupIfNeeded } from './data-safety/database-files'
 import { NcmCliNeteaseDataAdapter } from './import/ncm-cli-netease-data-adapter'
 import { registerCaptureIpcHandlers } from './ipc/capture-ipc'
+import { registerDataSafetyIpcHandlers } from './ipc/data-safety-ipc'
 import { registerImportIpcHandlers } from './ipc/import-ipc'
 import { registerLibraryIpcHandlers } from './ipc/library-ipc'
 import { registerPlaybackIpcHandlers } from './ipc/playback-ipc'
 import { MusicRepository, openMusicDatabase, type SqliteDatabase } from './persistence/database'
 import { NeteaseProtocolPlaybackAdapter } from './playback/netease-protocol-adapter'
 import { WindowsSmtcAdapter } from './playback/windows-smtc-adapter'
+import { DataSafetyService, type DataSafetyDialogAdapter } from './services/data-safety-service'
 import { LibraryService } from './services/library-service'
 import { NeteaseImportService } from './services/netease-import-service'
 import { PlaybackService } from './services/playback-service'
@@ -127,13 +140,99 @@ function closeMusicDatabase(): void {
   musicDatabase = undefined
 }
 
+function createDataSafetyDialogs(): DataSafetyDialogAdapter {
+  const documentsPath = app.getPath('documents')
+
+  return {
+    chooseBackupDestination: async (defaultFileName) => {
+      const result = await showSaveDialog({
+        title: '保存 MemoryMusic 数据库备份',
+        defaultPath: join(documentsPath, defaultFileName),
+        filters: [{ name: 'SQLite 数据库', extensions: ['sqlite3'] }]
+      })
+      return result.canceled ? null : (result.filePath ?? null)
+    },
+    chooseExportDestination: async (defaultFileName) => {
+      const result = await showSaveDialog({
+        title: '导出 MemoryMusic JSON',
+        defaultPath: join(documentsPath, defaultFileName),
+        filters: [{ name: 'JSON 数据', extensions: ['json'] }]
+      })
+      return result.canceled ? null : (result.filePath ?? null)
+    },
+    chooseRestoreSource: async () => {
+      const result = await showOpenDialog({
+        title: '选择 MemoryMusic 数据库备份',
+        properties: ['openFile'],
+        filters: [{ name: 'SQLite 数据库', extensions: ['sqlite3', 'db'] }]
+      })
+      return result.canceled ? null : (result.filePaths[0] ?? null)
+    },
+    confirmRestore: async (fileName) => {
+      const result = await showMessageBox({
+        type: 'warning',
+        title: '确认恢复备份',
+        message: `要从“${fileName}”恢复吗？`,
+        detail: '恢复会替换当前资料并重启应用。MemoryMusic 会先自动保存一份恢复前备份。',
+        buttons: ['取消', '恢复并重启'],
+        cancelId: 0,
+        defaultId: 0,
+        noLink: true
+      })
+      return result.response === 1
+    }
+  }
+}
+
+function showSaveDialog(options: SaveDialogOptions): ReturnType<typeof dialog.showSaveDialog> {
+  return mainWindow && !mainWindow.isDestroyed()
+    ? dialog.showSaveDialog(mainWindow, options)
+    : dialog.showSaveDialog(options)
+}
+
+function showOpenDialog(options: OpenDialogOptions): ReturnType<typeof dialog.showOpenDialog> {
+  return mainWindow && !mainWindow.isDestroyed()
+    ? dialog.showOpenDialog(mainWindow, options)
+    : dialog.showOpenDialog(options)
+}
+
+function showMessageBox(options: MessageBoxOptions): ReturnType<typeof dialog.showMessageBox> {
+  return mainWindow && !mainWindow.isDestroyed()
+    ? dialog.showMessageBox(mainWindow, options)
+    : dialog.showMessageBox(options)
+}
+
+function scheduleRestart(): void {
+  setTimeout(() => {
+    closeMusicDatabase()
+    app.relaunch()
+    app.exit(0)
+  }, 600)
+}
+
 void app
   .whenReady()
-  .then(() => {
+  .then(async () => {
     app.setAppUserModelId(APP_ID)
-    musicDatabase = openMusicDatabase(join(app.getPath('userData'), DATABASE_FILENAME))
+    const userDataPath = app.getPath('userData')
+    const databasePath = join(userDataPath, DATABASE_FILENAME)
+    const pendingRestore = applyPendingRestore(databasePath, userDataPath)
+
+    try {
+      await createStartupBackupIfNeeded(databasePath, userDataPath, new Date())
+    } catch {
+      console.warn('MemoryMusic could not create the pre-migration automatic backup')
+    }
+
+    musicDatabase = openMusicDatabase(databasePath)
     const repository = new MusicRepository(musicDatabase)
     const mediaSessionAdapter = new WindowsSmtcAdapter()
+    const dataSafetyService = new DataSafetyService(
+      musicDatabase,
+      databasePath,
+      userDataPath,
+      createDataSafetyDialogs()
+    )
     registerLibraryIpcHandlers(ipcMain, new LibraryService(repository))
     registerImportIpcHandlers(
       ipcMain,
@@ -150,6 +249,13 @@ void app
       )
     )
     registerCaptureIpcHandlers(ipcMain, new QuickCaptureService(repository, mediaSessionAdapter))
+    registerDataSafetyIpcHandlers(ipcMain, dataSafetyService, scheduleRestart)
+
+    try {
+      await dataSafetyService.createAutomaticBackupIfNeeded()
+    } catch {
+      console.warn('MemoryMusic could not create the daily automatic backup')
+    }
 
     ipcMain.handle('app:get-runtime-info', (): RuntimeInfo => {
       return {
@@ -162,7 +268,16 @@ void app
       }
     })
 
-    createWindow()
+    const window = createWindow()
+    if (pendingRestore.rejected) {
+      void dialog.showMessageBox(window, {
+        type: 'warning',
+        title: '备份恢复已取消',
+        message: '暂存的恢复文件未通过完整性检查。',
+        detail: '当前资料没有被替换。请重新选择一份有效的 MemoryMusic 备份。',
+        buttons: ['知道了']
+      })
+    }
     quickCaptureShortcut = installQuickCaptureShortcut(globalShortcut, () => {
       createQuickCaptureWindow()
     })

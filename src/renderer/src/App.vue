@@ -7,6 +7,7 @@ import type {
   TrackDetailDto,
   TrackFormInput
 } from '@shared/contracts'
+import DataSafetyPanel from './components/DataSafetyPanel.vue'
 import MemoryPanel from './components/MemoryPanel.vue'
 import ImportPanel from './components/ImportPanel.vue'
 import InboxPanel from './components/InboxPanel.vue'
@@ -22,6 +23,7 @@ const api = window.memoryMusic.library
 const playbackApi = window.memoryMusic.playback
 const importApi = window.memoryMusic.importer
 const captureApi = window.memoryMusic.capture
+const dataSafetyApi = window.memoryMusic.dataSafety
 const isQuickCapture = new URLSearchParams(window.location.search).get('quickCapture') === '1'
 const snapshot = ref<LibrarySnapshotDto>({ tracks: [], tags: [], memories: [] })
 const selectedTrackId = ref<number | null>(null)
@@ -148,6 +150,7 @@ function refreshAfterWindowFocus(): void {
       <aside class="sidebar-column">
         <TrackCreateForm :save="saveTrack" />
         <ImportPanel :api="importApi" @imported="refreshSelected" />
+        <DataSafetyPanel :api="dataSafetyApi" />
         <TrackList :tracks="snapshot.tracks" :selected-id="selectedTrackId" @select="loadTrack" />
         <TagManager :api="api" :tags="snapshot.tags" @refresh="refreshSelected" />
       </aside>

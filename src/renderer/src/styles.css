@@ -560,6 +560,22 @@ select option {
   margin-top: 10px;
 }
 
+.data-safety-actions {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.data-safety-panel .form-error,
+.data-safety-panel .success-copy {
+  margin-top: 10px;
+}
+
+.secondary-button.danger-outline {
+  color: var(--danger);
+  border-color: rgb(227 151 141 / 30%);
+}
+
 .inbox-list {
   display: grid;
   gap: 8px;
